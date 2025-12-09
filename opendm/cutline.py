@@ -13,7 +13,7 @@ from skimage.feature import canny
 from skimage.draw import line
 from skimage.graph import route_through_array
 import shapely
-from shapely.geometry import LineString, mapping, shape
+from shapely.geometry import LineString, mapping, shape, MultiPolygon
 from shapely.ops import polygonize, unary_union
 
 if sys.platform == 'win32':
@@ -158,12 +158,18 @@ def compute_cutline(orthophoto_file, crop_area_file, destination, max_concurrenc
         
         log.ODM_INFO("Largest cutline found: %s m^2" % max_area)
 
+        # Normalize geometry type so Fiona schema matches actual geometry
+        schema_geom = 'MultiPolygon' if largest_cutline.geom_type == 'MultiPolygon' else 'Polygon'
+        geometry_for_write = largest_cutline
+        if schema_geom == 'MultiPolygon' and largest_cutline.geom_type == 'Polygon':
+            geometry_for_write = MultiPolygon([largest_cutline])
+
         meta = {
             'crs': {'init': str(f.crs).lower() },
             'driver': 'GPKG',
             'schema': {
                 'properties': {},
-                'geometry': 'MultiPolygon'
+                'geometry': schema_geom
             }
         }
 
@@ -173,7 +179,7 @@ def compute_cutline(orthophoto_file, crop_area_file, destination, max_concurrenc
         
         with fiona.open(destination, 'w', **meta) as sink:
             sink.write({
-                'geometry': mapping(largest_cutline),
+                'geometry': mapping(geometry_for_write),
                 'properties': {}
             })
         f.close()
