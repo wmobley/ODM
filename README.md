@@ -1,11 +1,15 @@
 ![ODM Logo](https://user-images.githubusercontent.com/1951843/79699889-438ce580-8260-11ea-9c79-8667834aeab2.png)
 
+This fork is maintained for TACC-specific deployments and testing (cutline fixes and related downstream builds). If you want upstream ODM, use https://github.com/OpenDroneMap/ODM.
+
 An open source command line toolkit for processing aerial drone imagery. ODM turns simple 2D images into:
 
 * Classified Point Clouds
 * 3D Textured Models
 * Georeferenced Orthorectified Imagery
 * Georeferenced Digital Elevation Models
+
+Cutline generation now handles both `Polygon` and `MultiPolygon` outputs, avoiding Fiona schema mismatches when writing `cutline.gpkg`.
 
 ![images-diag](https://user-images.githubusercontent.com/1174901/96644651-5b205600-12f7-11eb-827b-8f4a3a6f3b21.png)
 
