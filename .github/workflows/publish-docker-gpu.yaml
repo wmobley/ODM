@@ -36,7 +36,7 @@ jobs:
         images: ghcr.io/${{ github.repository_owner }}/odm
         tags: |
           type=semver,pattern={{version}}-gpu
-          type=raw,value=gpu,enable={{is_default_branch}}
+          type=raw,value=gpu
     - name: Build and push Docker image
       id: docker_build
       uses: docker/build-push-action@v5
