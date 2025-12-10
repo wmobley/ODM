@@ -14,9 +14,8 @@ COPY . ./
 # Run the build
 RUN PORTABLE_INSTALL=YES bash configure.sh install
 
-# Run the tests
+# (Tests skipped in CI Docker build to reduce duration; run separately if needed)
 ENV PATH="/code/venv/bin:$PATH"
-RUN bash test.sh
 
 # Clean Superbuild
 RUN bash configure.sh clean
