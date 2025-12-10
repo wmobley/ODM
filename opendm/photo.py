@@ -209,7 +209,14 @@ class ODM_Photo:
         xtags = {}
 
         with open(_path_file, 'rb') as f:
-            tags = exifread.process_file(f, details=True, extract_thumbnail=False)
+            try:
+                tags = exifread.process_file(f, details=True, extract_thumbnail=False)
+            except UnboundLocalError:
+                # Some EXIF blocks (notably certain maker notes) trigger a bug in exifread;
+                # retry with details=False to avoid crashing the pipeline.
+                log.ODM_WARNING("EXIF parsing failed with details=True for %s, retrying with details=False", self.filename)
+                f.seek(0)
+                tags = exifread.process_file(f, details=False, extract_thumbnail=False)
             try:
                 if 'Image Make' in tags:
                     try:
