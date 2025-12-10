@@ -16,6 +16,27 @@ from xml.parsers.expat import ExpatError
 from opensfm.sensors import sensor_data
 from opensfm.geo import ecef_from_lla
 
+# Mitigate exifread bug where _get_printable_for_field can raise UnboundLocalError
+def _patch_exifread_prefer_printable():
+    try:
+        from exifread.core import ExifHeader
+    except Exception:
+        return
+
+    original = ExifHeader._get_printable_for_field
+
+    def _safe_get_printable(self, *args, **kwargs):
+        try:
+            return original(self, *args, **kwargs)
+        except UnboundLocalError:
+            # If exifread fails to set prefer_printable, fall back to empty printable
+            return "", True
+
+    ExifHeader._get_printable_for_field = _safe_get_printable
+
+
+_patch_exifread_prefer_printable()
+
 projections = ['perspective', 'fisheye', 'fisheye_opencv', 'brown', 'dual', 'equirectangular', 'spherical']
 
 def find_mean_utc_time(photos):
@@ -211,12 +232,16 @@ class ODM_Photo:
         with open(_path_file, 'rb') as f:
             try:
                 tags = exifread.process_file(f, details=True, extract_thumbnail=False)
-            except UnboundLocalError:
-                # Some EXIF blocks (notably certain maker notes) trigger a bug in exifread;
-                # retry with details=False to avoid crashing the pipeline.
-                log.ODM_WARNING("EXIF parsing failed with details=True for %s, retrying with details=False", self.filename)
+            except Exception:
+                # Some EXIF blocks (notably certain maker notes) trigger bugs in exifread;
+                # retry with details=False, and fall back to empty tags if that fails too.
+                log.ODM_WARNING(f"EXIF parsing failed with details=True for {self.filename}, retrying with details=False")
                 f.seek(0)
-                tags = exifread.process_file(f, details=False, extract_thumbnail=False)
+                try:
+                    tags = exifread.process_file(f, details=False, extract_thumbnail=False)
+                except Exception as exc:
+                    log.ODM_WARNING(f"EXIF parsing failed for {self.filename}, continuing without EXIF ({exc.__class__.__name__}: {exc})")
+                    tags = {}
             try:
                 if 'Image Make' in tags:
                     try:
@@ -557,7 +582,8 @@ class ODM_Photo:
             focal_ratio = focal_35 / 36.0  # 35mm film produces 36x24mm pictures.
         else:
             if not sensor_width:
-                sensor_width = sensor_data().get(sensor_string, None)
+                sensors = sensor_data() if callable(sensor_data) else sensor_data
+                sensor_width = sensors.get(sensor_string, None)
             if sensor_width and focal:
                 focal_ratio = focal / sensor_width
             else:
