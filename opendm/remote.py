@@ -403,14 +403,37 @@ class Task:
                 except exceptions.TaskFailedError as e:
                     # Try to get output
                     try:
-                        output_lines = task.output()
+                        output_lines = []
+                        try:
+                            output_lines = task.output()
+                        except Exception as output_exc:  # noqa: BLE001 - best effort logging
+                            log.ODM_WARNING("LRE: Could not retrieve task output for %s (%s): %s" % (self, task.uuid, str(output_exc)))
 
-                        # Save to file
+                        # Save to file (with a helpful placeholder when output is empty)
                         error_log_path = self.path("error.log")
+                        snippet = ""
                         with open(error_log_path, 'w') as f:
-                            f.write('\n'.join(output_lines) + '\n')
+                            if output_lines:
+                                f.write('\n'.join(output_lines) + '\n')
+                                snippet = "\n".join(output_lines[-10:])
+                            else:
+                                # Try to gather any status info so the log file is not empty
+                                try:
+                                    info = task.info()
+                                    status_str = getattr(info, "status", None)
+                                    status_str = status_str if status_str is not None else "unknown"
+                                    f.write("Task failed but returned no output. Status: %s\n" % status_str)
+                                    error_attr = getattr(info, "error", None)
+                                    if error_attr:
+                                        f.write("Error: %s\n" % error_attr)
+                                    exit_code = getattr(info, "exit_code", None)
+                                    if exit_code is not None:
+                                        f.write("Exit code: %s\n" % exit_code)
+                                except Exception as info_exc:  # noqa: BLE001 - best effort logging
+                                    f.write("Task failed, no output returned, and task.info() could not be retrieved: %s\n" % str(info_exc))
+                                snippet = "Task failed but no remote output was available; check the node logs."
 
-                        msg = "(%s) failed with task output: %s\nFull log saved at %s" % (task.uuid, "\n".join(output_lines[-10:]), error_log_path)
+                        msg = "(%s) failed with task output: %s\nFull log saved at %s" % (task.uuid, snippet, error_log_path)
                         done(exceptions.TaskFailedError(msg))
                     except:
                         log.ODM_WARNING("LRE: Could not retrieve task output for %s (%s)" % (self, task.uuid))
