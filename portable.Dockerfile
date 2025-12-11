@@ -8,11 +8,24 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # Prepare directories
 WORKDIR /code
 
-# Copy everything
-COPY . ./
+# Copy only build scripts and manifests first to maximize cache reuse
+COPY configure.sh .
+COPY SuperBuild ./SuperBuild
+COPY opendm/context.py ./opendm/context.py
+COPY requirements.txt .
+COPY requirements-dev.txt .
+COPY setup.py .
+COPY .gitmodules ./.gitmodules
 
-# Run the build
-RUN PORTABLE_INSTALL=YES bash configure.sh install
+# Run the build with cache mounts for faster rebuilds
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt/lists \
+    --mount=type=cache,target=/root/.cache/pip \
+    --mount=type=cache,target=/root/.ccache \
+    PORTABLE_INSTALL=YES bash configure.sh install
+
+# Now bring in the remaining source (smaller cache blast radius)
+COPY . ./
 
 # (Tests skipped in CI Docker build to reduce duration; run separately if needed)
 ENV PATH="/code/venv/bin:$PATH"
