@@ -363,8 +363,8 @@ class Task:
                 outputs=outputs)
         self.remote_task = task
 
-        # Cleanup seed file
-        os.remove(seed_file)
+        # Keep seed file for debugging
+        log.ODM_INFO("LRE: Keeping seed archive for debugging at %s" % seed_file)
 
         # Keep track of tasks for cleanup
         self.params['tasks'].append(task)
