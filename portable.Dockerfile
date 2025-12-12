@@ -14,13 +14,6 @@ COPY SuperBuild ./SuperBuild
 COPY opendm/context.py ./opendm/context.py
 COPY requirements.txt .
 
-# System deps needed early (GDAL headers/tools for python bindings)
-RUN --mount=type=cache,target=/var/cache/apt \
-    --mount=type=cache,target=/var/lib/apt/lists \
-    apt-get update -y && \
-    apt-get install -y gdal-bin libgdal-dev && \
-    rm -rf /var/lib/apt/lists/*
-
 # Run the build with cache mounts for faster rebuilds
 RUN --mount=type=cache,target=/var/cache/apt \
     --mount=type=cache,target=/var/lib/apt/lists \
