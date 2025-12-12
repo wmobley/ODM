@@ -9,10 +9,13 @@ ENV DEBIAN_FRONTEND=noninteractive \
 WORKDIR /code
 
 # Copy only build scripts and manifests first to maximize cache reuse
-COPY configure.sh configure.py ./
+COPY configure.sh .
 COPY SuperBuild ./SuperBuild
 COPY opendm/context.py ./opendm/context.py
 COPY requirements.txt .
+COPY requirements-dev.txt .
+COPY setup.py .
+COPY .gitmodules ./.gitmodules
 
 # Run the build with cache mounts for faster rebuilds
 RUN --mount=type=cache,target=/var/cache/apt \
