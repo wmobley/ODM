@@ -521,13 +521,17 @@ class ToolchainTask(Task):
             done(error=error)
 
         if not os.path.exists(completed_file) or self.params['rerun']:
+            # If the reconstruction artifacts are present, include them in the seed; otherwise
+            # create empty markers so downstream steps don't fail on missing paths.
+            optional_osfm_dirs = ["opensfm/features", "opensfm/matches", "opensfm/exif"]
+            present_optional_dirs = [d for d in optional_osfm_dirs if os.path.exists(self.path(d))]
+            missing_optional_markers = [f"{d}/empty" for d in optional_osfm_dirs if not os.path.exists(self.path(d))]
+
             self.execute_remote_task(handle_result, seed_files=["opensfm/camera_models.json",
                                                 "opensfm/reference_lla.json",
                                                 "opensfm/reconstruction.json",
-                                                "opensfm/tracks.csv"],
-                                seed_touch_files=["opensfm/features/empty",
-                                                "opensfm/matches/empty",
-                                                "opensfm/exif/empty"],
+                                                "opensfm/tracks.csv"] + present_optional_dirs,
+                                seed_touch_files=missing_optional_markers,
                                 outputs=["odm_orthophoto/cutline.gpkg",
                                         "odm_orthophoto/odm_orthophoto_cut.tif",
                                         "odm_orthophoto/odm_orthophoto_feathered.tif",
