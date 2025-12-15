@@ -291,25 +291,75 @@ class Task:
         with open(file, 'w') as fout:
             fout.write("Done!\n")
 
-    def create_seed_payload(self, paths, touch_files=[]):
-        paths = filter(os.path.exists, map(lambda p: self.path(p), paths))
+    def create_seed_payload(self, paths, touch_files=[], max_attempts=2):
+        """
+        Build a seed.zip with required inputs. Validate the archive after writing
+        to catch corruption early (ZipFile.testzip) and retry a limited number of times.
+        """
+        attempts = 0
+        paths = list(filter(os.path.exists, map(lambda p: self.path(p), paths)))
         outfile = self.path("seed.zip")
 
-        with zipfile.ZipFile(outfile, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+        def describe_inputs():
+            files = []
             for p in paths:
                 if os.path.isdir(p):
                     for root, _, filenames in os.walk(p):
                         for filename in filenames:
-                            filename = os.path.join(root, filename)
-                            filename = os.path.normpath(filename)
-                            zf.write(filename, os.path.relpath(filename, self.project_path))
+                            full = os.path.join(root, filename)
+                            try:
+                                size = os.path.getsize(full)
+                            except Exception:
+                                size = -1
+                            files.append((full, size))
                 else:
-                    zf.write(p, os.path.relpath(p, self.project_path))
+                    try:
+                        size = os.path.getsize(p)
+                    except Exception:
+                        size = -1
+                    files.append((p, size))
+            return files
 
-            for tf in touch_files:
-                zf.writestr(tf, "")
+        input_desc = describe_inputs()
 
-        return outfile
+        while attempts < max_attempts:
+            attempts += 1
+            try:
+                with zipfile.ZipFile(outfile, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+                    for p in paths:
+                        if os.path.isdir(p):
+                            for root, _, filenames in os.walk(p):
+                                for filename in filenames:
+                                    filename = os.path.join(root, filename)
+                                    filename = os.path.normpath(filename)
+                                    zf.write(filename, os.path.relpath(filename, self.project_path))
+                        else:
+                            zf.write(p, os.path.relpath(p, self.project_path))
+
+                    for tf in touch_files:
+                        zf.writestr(tf, "")
+
+                # Validate archive
+                with zipfile.ZipFile(outfile, "r") as zf:
+                    bad_file = zf.testzip()
+                    if bad_file is None:
+                        return outfile
+                    else:
+                        log.ODM_WARNING("LRE: Corrupt seed archive (%s) detected at %s on file %s, retrying (%s/%s)"
+                                        % (self, outfile, bad_file, attempts, max_attempts))
+                        os.remove(outfile)
+            except Exception as e:
+                log.ODM_WARNING("LRE: Failed to create seed archive (%s) attempt %s/%s: %s"
+                                % (self, attempts, max_attempts, str(e)))
+                try:
+                    if os.path.exists(outfile):
+                        os.remove(outfile)
+                except Exception:
+                    pass
+
+        log.ODM_WARNING("LRE: Exhausted attempts creating seed archive for %s. Input files (path:size): %s"
+                        % (self, ", ".join(["%s:%s" % (p, s) for p, s in input_desc])))
+        raise Exception("Could not create a valid seed archive for %s after %s attempts" % (self, max_attempts))
 
     def _process_local(self, done):
         try:
@@ -395,7 +445,32 @@ class Task:
                             log.ODM_INFO("LRE: Download of %s at [%s%%]" % (self, int(percentage)))
                             nonloc.last_update = time.time()
 
-                    task.wait_for_completion(status_callback=status_callback)
+                    status_retries = 0
+                    max_status_retries = 8
+                    retry_backoff = 5
+
+                    while True:
+                        try:
+                            task.wait_for_completion(status_callback=status_callback)
+                            break
+                        except exceptions.TaskFailedError:
+                            # Bubble up task failures (handled below)
+                            raise
+                        except Exception as poll_err:
+                            # ClusterODM can briefly return "status <uuid> not found" while
+                            # it distributes the task to worker nodes. Treat this as a
+                            # transient condition and retry a few times before failing.
+                            err_msg = str(poll_err).lower()
+                            if "not found" in err_msg and "status" in err_msg and status_retries < max_status_retries:
+                                status_retries += 1
+                                wait_for = retry_backoff * status_retries
+                                log.ODM_WARNING(
+                                    "LRE: %s (%s) status not available yet (attempt %s/%s), retrying in %ss" %
+                                    (self, task.uuid, status_retries, max_status_retries, wait_for))
+                                time.sleep(wait_for)
+                                continue
+
+                            raise
                     log.ODM_INFO("LRE: Downloading assets for %s" % self)
                     task.download_assets(self.project_path, progress_callback=print_progress)
                     log.ODM_INFO("LRE: Downloaded and extracted assets for %s" % self)
@@ -411,29 +486,42 @@ class Task:
 
                         # Save to file (with a helpful placeholder when output is empty)
                         error_log_path = self.path("error.log")
-                        snippet = ""
-                        with open(error_log_path, 'w') as f:
-                            if output_lines:
-                                f.write('\n'.join(output_lines) + '\n')
-                                snippet = "\n".join(output_lines[-10:])
-                            else:
-                                # Try to gather any status info so the log file is not empty
-                                try:
-                                    info = task.info()
-                                    status_str = getattr(info, "status", None)
-                                    status_str = status_str if status_str is not None else "unknown"
-                                    f.write("Task failed but returned no output. Status: %s\n" % status_str)
-                                    error_attr = getattr(info, "error", None)
-                                    if error_attr:
-                                        f.write("Error: %s\n" % error_attr)
-                                    exit_code = getattr(info, "exit_code", None)
-                                    if exit_code is not None:
-                                        f.write("Exit code: %s\n" % exit_code)
-                                except Exception as info_exc:  # noqa: BLE001 - best effort logging
-                                    f.write("Task failed, no output returned, and task.info() could not be retrieved: %s\n" % str(info_exc))
-                                snippet = "Task failed but no remote output was available; check the node logs."
+                        log_dir = os.path.dirname(error_log_path)
+                        if log_dir and not os.path.exists(log_dir):
+                            os.makedirs(log_dir, exist_ok=True)
 
-                        msg = "(%s) failed with task output: %s\nFull log saved at %s" % (task.uuid, snippet, error_log_path)
+                        snippet = ""
+                        log_write_failed = None
+                        try:
+                            with open(error_log_path, 'w') as f:
+                                if output_lines:
+                                    f.write('\n'.join(output_lines) + '\n')
+                                    snippet = "\n".join(output_lines[-10:])
+                                else:
+                                    # Try to gather any status info so the log file is not empty
+                                    try:
+                                        info = task.info()
+                                        status_str = getattr(info, "status", None)
+                                        status_str = status_str if status_str is not None else "unknown"
+                                        f.write("Task failed but returned no output. Status: %s\n" % status_str)
+                                        error_attr = getattr(info, "error", None)
+                                        if error_attr:
+                                            f.write("Error: %s\n" % error_attr)
+                                        exit_code = getattr(info, "exit_code", None)
+                                        if exit_code is not None:
+                                            f.write("Exit code: %s\n" % exit_code)
+                                    except Exception as info_exc:  # noqa: BLE001 - best effort logging
+                                        f.write("Task failed, no output returned, and task.info() could not be retrieved: %s\n" % str(info_exc))
+                                    snippet = "Task failed but no remote output was available; check the node logs."
+                        except Exception as write_exc:
+                            log_write_failed = str(write_exc)
+                            log.ODM_WARNING("LRE: Failed to write error log at %s: %s" % (error_log_path, log_write_failed))
+
+                        msg = "(%s) failed with task output: %s" % (task.uuid, snippet or "No output retrieved")
+                        if log_write_failed:
+                            msg += "\nFull log could not be written (%s)" % log_write_failed
+                        else:
+                            msg += "\nFull log saved at %s" % error_log_path
                         done(exceptions.TaskFailedError(msg))
                     except:
                         log.ODM_WARNING("LRE: Could not retrieve task output for %s (%s)" % (self, task.uuid))
