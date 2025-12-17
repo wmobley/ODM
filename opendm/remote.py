@@ -4,6 +4,7 @@ import os
 import threading
 import zipfile
 import glob
+import hashlib
 from opendm import log
 from opendm import system
 from opendm import config
@@ -300,6 +301,39 @@ class Task:
         paths = list(filter(os.path.exists, map(lambda p: self.path(p), paths)))
         outfile = self.path("seed.zip")
 
+        def wait_for_stable_file(path, label, max_wait=30, interval=0.5, stable_checks=3):
+            last_size = -1
+            last_mtime = -1
+            stable_count = 0
+            start = time.time()
+
+            while (time.time() - start) <= max_wait:
+                try:
+                    stats = os.stat(path)
+                    size = stats.st_size
+                    mtime = stats.st_mtime
+                    if size > 0 and size == last_size and mtime == last_mtime:
+                        stable_count += 1
+                        if stable_count >= stable_checks:
+                            return True
+                    else:
+                        stable_count = 0
+                    last_size = size
+                    last_mtime = mtime
+                except Exception:
+                    stable_count = 0
+                time.sleep(interval)
+
+            log.ODM_WARNING("LRE: Timed out waiting for stable seed archive (%s) at %s" % (self, label))
+            return False
+
+        def hash_file_sha256(path):
+            digest = hashlib.sha256()
+            with open(path, "rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            return digest.hexdigest()
+
         def describe_inputs():
             files = []
             for p in paths:
@@ -343,6 +377,30 @@ class Task:
                 with zipfile.ZipFile(outfile, "r") as zf:
                     bad_file = zf.testzip()
                     if bad_file is None:
+                        stable = wait_for_stable_file(outfile, outfile)
+                        if not stable:
+                            log.ODM_WARNING("LRE: Seed archive (%s) did not stabilize on disk, retrying (%s/%s)"
+                                            % (self, attempts, max_attempts))
+                            os.remove(outfile)
+                            continue
+
+                        with zipfile.ZipFile(outfile, "r") as zf_recheck:
+                            bad_file = zf_recheck.testzip()
+                            if bad_file is not None:
+                                log.ODM_WARNING("LRE: Corrupt seed archive (%s) detected after stabilization at %s on file %s, retrying (%s/%s)"
+                                                % (self, outfile, bad_file, attempts, max_attempts))
+                                os.remove(outfile)
+                                continue
+
+                        try:
+                            size = os.path.getsize(outfile)
+                            sha256 = hash_file_sha256(outfile)
+                            log.ODM_INFO("LRE: Seed zip diagnostics for %s: path=%s, size=%s, sha256=%s"
+                                         % (self, outfile, size, sha256))
+                        except Exception as diag_err:
+                            log.ODM_WARNING("LRE: Seed zip diagnostics failed for %s at %s: %s"
+                                            % (self, outfile, str(diag_err)))
+
                         return outfile
                     else:
                         log.ODM_WARNING("LRE: Corrupt seed archive (%s) detected at %s on file %s, retrying (%s/%s)"
@@ -381,21 +439,21 @@ class Task:
         creating empty files (for flag checks) specified in seed_touch_files
         and returning the results specified in outputs. Yeah it's pretty cool!
         """
-        seed_file = self.create_seed_payload(seed_files, touch_files=seed_touch_files)
-        
-        # Find all images
-        images = glob.glob(self.path("images/**"))
+        def build_images(seed_file):
+            # Find all images
+            images = glob.glob(self.path("images/**"))
 
-        # Add GCP (optional)
-        if os.path.exists(self.path("gcp_list.txt")):
-            images.append(self.path("gcp_list.txt"))
-        
-        # Add GEO (optional)
-        if os.path.exists(self.path("geo.txt")):
-            images.append(self.path("geo.txt"))
-        
-        # Add seed file
-        images.append(seed_file)
+            # Add GCP (optional)
+            if os.path.exists(self.path("gcp_list.txt")):
+                images.append(self.path("gcp_list.txt"))
+
+            # Add GEO (optional)
+            if os.path.exists(self.path("geo.txt")):
+                images.append(self.path("geo.txt"))
+
+            # Add seed file
+            images.append(seed_file)
+            return images
 
         class nonloc:
             last_update = 0
@@ -405,12 +463,29 @@ class Task:
                 log.ODM_INFO("LRE: Upload of %s at [%s%%]" % (self, int(percentage)))
                 nonloc.last_update = time.time()
 
-        # Upload task
-        task = self.node.create_task(images, 
-                get_submodel_args_dict(config.config()),
-                progress_callback=print_progress,
-                skip_post_processing=True,
-                outputs=outputs)
+        # Upload task (retry once if the remote node rejects the seed archive)
+        task = None
+        seed_file = None
+        seed_attempt = 0
+        max_seed_retries = 1
+        while seed_attempt <= max_seed_retries:
+            seed_file = self.create_seed_payload(seed_files, touch_files=seed_touch_files)
+            images = build_images(seed_file)
+            try:
+                task = self.node.create_task(images,
+                        get_submodel_args_dict(config.config()),
+                        progress_callback=print_progress,
+                        skip_post_processing=True,
+                        outputs=outputs)
+                break
+            except exceptions.NodeResponseError as e:
+                message = str(e)
+                if 'seed.zip failed integrity check' in message and seed_attempt < max_seed_retries:
+                    seed_attempt += 1
+                    log.ODM_WARNING("LRE: Remote node rejected seed archive (%s) for %s; regenerating and retrying (%s/%s)"
+                                    % (message, self, seed_attempt, max_seed_retries))
+                    continue
+                raise
         self.remote_task = task
 
         # Keep seed file for debugging
