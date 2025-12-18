@@ -14,6 +14,14 @@ from pyodm.types import TaskStatus
 from opendm.osfm import OSFMContext, get_submodel_args_dict, get_submodel_argv
 from opendm.utils import double_quote
 
+
+def hash_file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
 try:
     import queue
 except ImportError:
@@ -327,13 +335,6 @@ class Task:
             log.ODM_WARNING("LRE: Timed out waiting for stable seed archive (%s) at %s" % (self, label))
             return False
 
-        def hash_file_sha256(path):
-            digest = hashlib.sha256()
-            with open(path, "rb") as handle:
-                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                    digest.update(chunk)
-            return digest.hexdigest()
-
         def describe_inputs():
             files = []
             for p in paths:
@@ -475,9 +476,10 @@ class Task:
                         get_submodel_args_dict(config.config()),
                         name=str(self))
             except Exception as e:
-                log.ODM_WARNING("LRE: import_path submission failed for %s (%s); falling back to seed.zip upload"
+                # Do not fall back to seed.zip when import_path is requested; fail fast
+                log.ODM_WARNING("LRE: import_path submission failed for %s (%s); not falling back to seed.zip because ODM_REMOTE_USE_IMPORT_PATH=1"
                                 % (self, str(e)))
-                task = None
+                raise
 
         # Upload task (retry once if the remote node rejects the seed archive)
         if task is None:
