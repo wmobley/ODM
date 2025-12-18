@@ -439,6 +439,8 @@ class Task:
         creating empty files (for flag checks) specified in seed_touch_files
         and returning the results specified in outputs. Yeah it's pretty cool!
         """
+        use_import_path = os.environ.get("ODM_REMOTE_USE_IMPORT_PATH", "0") == "1"
+
         def build_images(seed_file):
             # Find all images
             images = glob.glob(self.path("images/**"))
@@ -463,33 +465,53 @@ class Task:
                 log.ODM_INFO("LRE: Upload of %s at [%s%%]" % (self, int(percentage)))
                 nonloc.last_update = time.time()
 
-        # Upload task (retry once if the remote node rejects the seed archive)
+        # Prefer import_path when enabled and supported to avoid seed.zip transfers
         task = None
         seed_file = None
-        seed_attempt = 0
-        max_seed_retries = 1
-        while seed_attempt <= max_seed_retries:
-            seed_file = self.create_seed_payload(seed_files, touch_files=seed_touch_files)
-            images = build_images(seed_file)
+        if use_import_path and hasattr(self.node, "create_task_from_path"):
             try:
-                task = self.node.create_task(images,
+                log.ODM_INFO("LRE: Attempting import_path submission for %s via %s" % (self, self.project_path))
+                task = self.node.create_task_from_path(self.project_path,
                         get_submodel_args_dict(config.config()),
-                        progress_callback=print_progress,
-                        skip_post_processing=True,
-                        outputs=outputs)
-                break
-            except exceptions.NodeResponseError as e:
-                message = str(e)
-                if 'seed.zip failed integrity check' in message and seed_attempt < max_seed_retries:
-                    seed_attempt += 1
-                    log.ODM_WARNING("LRE: Remote node rejected seed archive (%s) for %s; regenerating and retrying (%s/%s)"
-                                    % (message, self, seed_attempt, max_seed_retries))
-                    continue
-                raise
+                        name=str(self))
+            except Exception as e:
+                log.ODM_WARNING("LRE: import_path submission failed for %s (%s); falling back to seed.zip upload"
+                                % (self, str(e)))
+                task = None
+
+        # Upload task (retry once if the remote node rejects the seed archive)
+        if task is None:
+            seed_attempt = 0
+            max_seed_retries = 1
+            while seed_attempt <= max_seed_retries:
+                seed_file = self.create_seed_payload(seed_files, touch_files=seed_touch_files)
+                images = build_images(seed_file)
+                try:
+                    size = os.path.getsize(seed_file)
+                    sha = hash_file_sha256(seed_file)
+                    log.ODM_INFO("LRE: Seed zip ready for upload %s: path=%s, size=%s, sha256=%s" % (self, seed_file, size, sha))
+                except Exception as diag_err:
+                    log.ODM_WARNING("LRE: Unable to log seed zip diagnostics for %s at %s: %s" % (self, seed_file, str(diag_err)))
+                try:
+                    task = self.node.create_task(images,
+                            get_submodel_args_dict(config.config()),
+                            progress_callback=print_progress,
+                            skip_post_processing=True,
+                            outputs=outputs)
+                    break
+                except exceptions.NodeResponseError as e:
+                    message = str(e)
+                    if 'seed.zip failed integrity check' in message and seed_attempt < max_seed_retries:
+                        seed_attempt += 1
+                        log.ODM_WARNING("LRE: Remote node rejected seed archive (%s) for %s; regenerating and retrying (%s/%s)"
+                                        % (message, self, seed_attempt, max_seed_retries))
+                        continue
+                    raise
         self.remote_task = task
 
         # Keep seed file for debugging
-        log.ODM_INFO("LRE: Keeping seed archive for debugging at %s" % seed_file)
+        if seed_file:
+            log.ODM_INFO("LRE: Keeping seed archive for debugging at %s" % seed_file)
 
         # Keep track of tasks for cleanup
         self.params['tasks'].append(task)
