@@ -481,15 +481,15 @@ class Task:
                             name=str(self))
                 else:
                     # Fallback: manually POST import_path to the node
-                    scheme = "https" if getattr(self.node, "ssl", False) else "http"
                     host = getattr(self.node, "host", None) or getattr(self.node, "hostname", None)
                     port = getattr(self.node, "port", None)
                     token = getattr(self.node, "token", None)
                     if host is None or port is None:
                         raise Exception("Missing node host/port for import_path submission")
-                    url_base = f"{scheme}://{host}:{port}/task/new"
-                    if token:
-                        url_base = f"{url_base}?token={token}"
+
+                    # Try HTTPS first if the node indicates SSL or is using port 443; otherwise try HTTP first and fallback.
+                    prefers_ssl = getattr(self.node, "ssl", False) or str(port) == "443"
+                    protocols = ["https", "http"] if prefers_ssl else ["http", "https"]
 
                     options_dict = get_submodel_args_dict(config.config())
                     options_array = []
@@ -503,21 +503,39 @@ class Task:
                         "skipPostProcessing": True,
                         "outputs": json.dumps(outputs or [])
                     }
-                    log.ODM_INFO("LRE: Attempting import_path submission (manual) for %s via %s" % (self, self.project_path))
-                    resp = requests.post(url_base, data=payload, timeout=300)
-                    if resp.status_code != 200:
-                        raise Exception("HTTP %s: %s" % (resp.status_code, resp.text))
-                    data = resp.json()
-                    if data.get("error"):
-                        raise Exception(data.get("error"))
-                    if not data.get("uuid"):
-                        raise Exception("Node import_path response missing uuid")
-                    # Create a lightweight Task-like object holding the uuid and node reference
-                    class SimpleTask:
-                        def __init__(self, uuid, node):
-                            self.uuid = uuid
-                            self.node = node
-                    task = SimpleTask(data["uuid"], self.node)
+
+                    last_error = None
+                    for scheme in protocols:
+                        url_base = f"{scheme}://{host}:{port}/task/new"
+                        if token:
+                            url_base = f"{url_base}?token={token}"
+                        try:
+                            log.ODM_INFO("LRE: Attempting import_path submission (manual, %s) for %s via %s" % (scheme, self, self.project_path))
+                            resp = requests.post(url_base, data=payload, timeout=300)
+                            if resp.status_code != 200:
+                                # If we hit HTTPS but sent plain HTTP (or vice-versa), try the alternate scheme
+                                if "plain HTTP request was sent to HTTPS port" in resp.text:
+                                    last_error = Exception("HTTP->HTTPS mismatch: %s" % resp.text)
+                                    continue
+                                raise Exception("HTTP %s: %s" % (resp.status_code, resp.text))
+                            data = resp.json()
+                            if data.get("error"):
+                                raise Exception(data.get("error"))
+                            if not data.get("uuid"):
+                                raise Exception("Node import_path response missing uuid")
+                            class SimpleTask:
+                                def __init__(self, uuid, node):
+                                    self.uuid = uuid
+                                    self.node = node
+                            task = SimpleTask(data["uuid"], self.node)
+                            break
+                        except Exception as sub_err:
+                            last_error = sub_err
+                            continue
+                    if task is None:
+                        if last_error:
+                            raise last_error
+                        raise Exception("Unable to submit import_path task")
             except Exception as e:
                 # Do not fall back to seed.zip when import_path is requested; fail fast
                 log.ODM_WARNING("LRE: import_path submission failed for %s (%s); not falling back to seed.zip because ODM_REMOTE_USE_IMPORT_PATH=1"
