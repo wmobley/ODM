@@ -471,12 +471,25 @@ class Task:
         # Prefer import_path when enabled and supported to avoid seed.zip transfers
         task = None
         seed_file = None
+        # Optionally re-root the import_path to a shared base (e.g., Tapis working dir)
+        import_path_base = os.environ.get("ODM_IMPORT_PATH_BASE") or os.environ.get("_tapisJobWorkingDir")
+        import_path_override = None
+        if use_import_path and import_path_base:
+            try:
+                # If project_path is under /var/www/data, preserve the relative portion
+                rel = os.path.relpath(self.project_path, "/var/www/data")
+                import_path_override = os.path.normpath(os.path.join(import_path_base, rel))
+            except Exception:
+                # Fallback: use project_path as-is
+                import_path_override = None
+
         if use_import_path:
             try:
                 # Prefer native pyodm helper when available
                 if hasattr(self.node, "create_task_from_path"):
-                    log.ODM_INFO("LRE: Attempting import_path submission for %s via %s" % (self, self.project_path))
-                    task = self.node.create_task_from_path(self.project_path,
+                    imp_path = import_path_override or self.project_path
+                    log.ODM_INFO("LRE: Attempting import_path submission for %s via %s" % (self, imp_path))
+                    task = self.node.create_task_from_path(imp_path,
                             get_submodel_args_dict(config.config()),
                             name=str(self))
                 else:
@@ -496,9 +509,10 @@ class Task:
                     for k, v in options_dict.items():
                         options_array.append({"name": k, "value": v})
 
+                    imp_path = import_path_override or self.project_path
                     payload = {
                         "name": str(self),
-                        "import_path": self.project_path,
+                        "import_path": imp_path,
                         "options": json.dumps(options_array),
                         "skipPostProcessing": True,
                         "outputs": json.dumps(outputs or [])
