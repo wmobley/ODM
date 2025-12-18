@@ -5,6 +5,8 @@ import threading
 import zipfile
 import glob
 import hashlib
+import json
+import requests
 from opendm import log
 from opendm import system
 from opendm import config
@@ -469,12 +471,53 @@ class Task:
         # Prefer import_path when enabled and supported to avoid seed.zip transfers
         task = None
         seed_file = None
-        if use_import_path and hasattr(self.node, "create_task_from_path"):
+        if use_import_path:
             try:
-                log.ODM_INFO("LRE: Attempting import_path submission for %s via %s" % (self, self.project_path))
-                task = self.node.create_task_from_path(self.project_path,
-                        get_submodel_args_dict(config.config()),
-                        name=str(self))
+                # Prefer native pyodm helper when available
+                if hasattr(self.node, "create_task_from_path"):
+                    log.ODM_INFO("LRE: Attempting import_path submission for %s via %s" % (self, self.project_path))
+                    task = self.node.create_task_from_path(self.project_path,
+                            get_submodel_args_dict(config.config()),
+                            name=str(self))
+                else:
+                    # Fallback: manually POST import_path to the node
+                    scheme = "https" if getattr(self.node, "ssl", False) else "http"
+                    host = getattr(self.node, "host", None) or getattr(self.node, "hostname", None)
+                    port = getattr(self.node, "port", None)
+                    token = getattr(self.node, "token", None)
+                    if host is None or port is None:
+                        raise Exception("Missing node host/port for import_path submission")
+                    url_base = f"{scheme}://{host}:{port}/task/new"
+                    if token:
+                        url_base = f"{url_base}?token={token}"
+
+                    options_dict = get_submodel_args_dict(config.config())
+                    options_array = []
+                    for k, v in options_dict.items():
+                        options_array.append({"name": k, "value": v})
+
+                    payload = {
+                        "name": str(self),
+                        "import_path": self.project_path,
+                        "options": json.dumps(options_array),
+                        "skipPostProcessing": True,
+                        "outputs": json.dumps(outputs or [])
+                    }
+                    log.ODM_INFO("LRE: Attempting import_path submission (manual) for %s via %s" % (self, self.project_path))
+                    resp = requests.post(url_base, data=payload, timeout=300)
+                    if resp.status_code != 200:
+                        raise Exception("HTTP %s: %s" % (resp.status_code, resp.text))
+                    data = resp.json()
+                    if data.get("error"):
+                        raise Exception(data.get("error"))
+                    if not data.get("uuid"):
+                        raise Exception("Node import_path response missing uuid")
+                    # Create a lightweight Task-like object holding the uuid and node reference
+                    class SimpleTask:
+                        def __init__(self, uuid, node):
+                            self.uuid = uuid
+                            self.node = node
+                    task = SimpleTask(data["uuid"], self.node)
             except Exception as e:
                 # Do not fall back to seed.zip when import_path is requested; fail fast
                 log.ODM_WARNING("LRE: import_path submission failed for %s (%s); not falling back to seed.zip because ODM_REMOTE_USE_IMPORT_PATH=1"
