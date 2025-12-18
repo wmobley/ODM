@@ -550,6 +550,39 @@ class Task:
                         if last_error:
                             raise last_error
                         raise Exception("Unable to submit import_path task")
+                    # Provide a minimal Task-like wrapper so downstream cleanup/limit logic works
+                    class SimpleTask:
+                        def __init__(self, uuid, node):
+                            self.uuid = uuid
+                            self.node = node
+                            self.remote_task = None
+
+                        def remove(self):
+                            # Try both delete_task and remove_task if available
+                            for attr in ("delete_task", "remove_task"):
+                                fn = getattr(self.node, attr, None)
+                                if callable(fn):
+                                    try:
+                                        return fn(self.uuid)
+                                    except Exception:
+                                        continue
+                            raise exceptions.OdmError("remove not supported for import_path task %s" % self.uuid)
+
+                        def info(self, with_output=None):
+                            try:
+                                fn = getattr(self.node, "get_task_info", None)
+                                if callable(fn):
+                                    return fn(self.uuid, with_output=with_output)
+                            except Exception:
+                                pass
+                            # Fallback: return a minimal object
+                            class Info:
+                                status = TaskStatus.RUNNING
+                                processing_time = 0
+                                output = []
+                            return Info()
+
+                    task = SimpleTask(data["uuid"], self.node)
             except Exception as e:
                 # Do not fall back to seed.zip when import_path is requested; fail fast
                 log.ODM_WARNING("LRE: import_path submission failed for %s (%s); not falling back to seed.zip because ODM_REMOTE_USE_IMPORT_PATH=1"
