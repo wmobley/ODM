@@ -6,6 +6,7 @@ import zipfile
 import glob
 import hashlib
 import json
+import shutil
 import requests
 from opendm import log
 from opendm import system
@@ -501,6 +502,7 @@ class Task:
                 log.ODM_WARNING("LRE: failed to log import_path status for %s: %s" % (label_path, str(e)))
 
         # Optionally re-root the import_path to a shared base (e.g., Tapis working dir)
+        # Try explicit override first, then fall back to the job working directory (Tapis)
         import_path_base = os.environ.get("ODM_IMPORT_PATH_BASE") or os.environ.get("_tapisJobWorkingDir")
         import_path_override = None
         if use_import_path:
@@ -511,31 +513,116 @@ class Task:
             except Exception:
                 rel = None
 
-            # Best-effort discovery of the runtime data base when ODM_IMPORT_PATH_BASE is not set.
-            # Look for the active nodeodm runtime in the Tapis working directory to avoid missing
-            # the "nodeodm_workdir_*" segment (which led to ENOENT in ClusterODM logs).
-            if not import_path_base and rel:
-                job_dir = os.environ.get("_tapisJobWorkingDir")
-                if job_dir:
-                    try:
-                        import glob
-                        # rel usually looks like "<uuid>/submodels/submodel_xxxx"
-                        project_uuid = rel.split(os.sep)[0]
-                        pattern = os.path.join(job_dir, "nodeodm_workdir*", "runtime", "data", project_uuid)
-                        matches = glob.glob(pattern)
-                        if matches:
-                            import_path_base = os.path.join(os.path.dirname(matches[0]))
-                            log.ODM_INFO("LRE: Discovered import_path base via _tapisJobWorkingDir: %s" % import_path_base)
-                    except Exception as e:
-                        log.ODM_WARNING("LRE: Failed autodetecting import_path base from _tapisJobWorkingDir: %s" % str(e))
-
-            if import_path_base and rel:
+            def discover_import_base(job_dir, project_rel):
+                """
+                Best-effort discovery of the runtime data base when ODM_IMPORT_PATH_BASE is not set
+                or when it points to the raw job directory (missing the nodeodm_workdir* segment).
+                """
+                if not job_dir or not project_rel:
+                    return None
                 try:
-                    import_path_override = os.path.normpath(os.path.join(import_path_base, rel))
-                except Exception:
-                    import_path_override = None
+                    import glob
+                    project_uuid = project_rel.split(os.sep)[0]
+                    pattern = os.path.join(job_dir, "nodeodm_workdir*", "runtime", "data", project_uuid)
+                    matches = glob.glob(pattern)
+                    if matches:
+                        return os.path.dirname(matches[0])
+                except Exception as e:
+                    log.ODM_WARNING("LRE: Failed autodetecting import_path base from _tapisJobWorkingDir: %s" % str(e))
+                return None
 
-            log_import_path_status(import_path_override or self.project_path)
+            candidate_base = import_path_base
+            candidate_path = None
+            if candidate_base and rel:
+                try:
+                    candidate_path = os.path.normpath(os.path.join(candidate_base, rel))
+                except Exception:
+                    candidate_path = None
+
+            # If the candidate path does not exist (common when the nodeodm_workdir* segment is missing),
+            # try to discover the runtime data base from the job directory.
+            if rel:
+                if not candidate_path or not os.path.exists(candidate_path):
+                    job_dir = os.environ.get("_tapisJobWorkingDir")
+                    discovered_base = discover_import_base(job_dir, rel)
+                    if discovered_base:
+                        import_path_base = discovered_base
+                        candidate_path = os.path.normpath(os.path.join(import_path_base, rel))
+                        log.ODM_INFO("LRE: Using discovered import_path base %s (candidate %s was missing)"
+                                     % (import_path_base, candidate_base))
+                    else:
+                        if candidate_base:
+                            log.ODM_WARNING("LRE: import_path candidate %s/%s does not exist"
+                                            % (candidate_base, rel))
+                import_path_override = candidate_path
+
+            def has_top_level_images(path):
+                try:
+                    patterns = ["*.jpg", "*.jpeg", "*.JPG", "*.JPEG", "*.png", "*.PNG", "*.tif", "*.tiff", "*.TIF", "*.TIFF"]
+                    for pat in patterns:
+                        if glob.glob(os.path.join(path, pat)):
+                            return True
+                except Exception:
+                    pass
+                return False
+
+            def flatten_import_path(base_path):
+                """
+                NodeODM import_path expects the images directory directly at the import root.
+                Submodels store images under <project>/images, which leads to images/images.
+                Build a shallow view with images at the root (symlinks) and carry over support files.
+                """
+                images_dir = os.path.join(base_path, "images")
+                if not os.path.isdir(images_dir):
+                    return base_path
+
+                # If images already exist at the top level, nothing to flatten.
+                if has_top_level_images(base_path):
+                    return base_path
+
+                flat_dir = os.path.join(base_path, "_import_path_flat")
+                try:
+                    if os.path.exists(flat_dir):
+                        shutil.rmtree(flat_dir)
+                    os.makedirs(flat_dir, exist_ok=True)
+
+                    for root, _, files in os.walk(images_dir):
+                        rel_root = os.path.relpath(root, images_dir)
+                        dst_root = flat_dir if rel_root == "." else os.path.join(flat_dir, rel_root)
+                        os.makedirs(dst_root, exist_ok=True)
+                        for filename in files:
+                            src = os.path.join(root, filename)
+                            dst = os.path.join(dst_root, filename)
+                            try:
+                                os.symlink(src, dst)
+                            except FileExistsError:
+                                pass
+                            except Exception as e:
+                                log.ODM_WARNING("LRE: Failed linking %s -> %s: %s" % (src, dst, str(e)))
+
+                    support_files = ["gcp_list.txt", "align.las", "align.laz", "align.tif"]
+                    for sf in support_files:
+                        src_sf = os.path.join(base_path, sf)
+                        if os.path.exists(src_sf):
+                            dst_sf = os.path.join(flat_dir, sf)
+                            try:
+                                os.symlink(src_sf, dst_sf)
+                            except FileExistsError:
+                                pass
+                            except Exception as e:
+                                log.ODM_WARNING("LRE: Failed linking support file %s -> %s: %s" % (src_sf, dst_sf, str(e)))
+
+                    log.ODM_INFO("LRE: Using flattened import_path view for submodel images at %s" % flat_dir)
+                    return flat_dir
+                except Exception as e:
+                    log.ODM_WARNING("LRE: Failed to build flattened import_path at %s: %s" % (flat_dir, str(e)))
+                    return base_path
+
+            # Flatten submodel layout so NodeODM sees images at the import root (avoids images/images).
+            target_import_path = import_path_override or self.project_path
+            import_path_override = flatten_import_path(target_import_path)
+
+            log_import_path_status(import_path_override)
 
         if use_import_path:
             try:
