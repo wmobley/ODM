@@ -582,6 +582,27 @@ class Task:
                                 output = []
                             return Info()
 
+                        def wait_for_completion(self, *args, **kwargs):
+                            # Try native wait if available
+                            fn = getattr(self.node, "wait_for_task_completion", None)
+                            if callable(fn):
+                                return fn(self.uuid, *args, **kwargs)
+                            # Otherwise, no-op/fallback: return a minimal object
+                            return self.info()
+
+                        def download_assets(self, *args, **kwargs):
+                            fn = getattr(self.node, "download_assets", None)
+                            if callable(fn):
+                                return fn(self.uuid, *args, **kwargs)
+                            # Nothing to download in import_path mode; treat as no-op
+                            return True
+
+                        def output(self, *args, **kwargs):
+                            fn = getattr(self.node, "get_task_output", None)
+                            if callable(fn):
+                                return fn(self.uuid, *args, **kwargs)
+                            return []
+
                     task = SimpleTask(data["uuid"], self.node)
             except Exception as e:
                 # Do not fall back to seed.zip when import_path is requested; fail fast
