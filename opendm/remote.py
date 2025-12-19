@@ -820,6 +820,11 @@ class Task:
 
                     while True:
                         try:
+                            try:
+                                log.ODM_INFO("LRE: polling %s/task/%s/info" % (getattr(self.node, "url", self.node.host), task.uuid))
+                            except Exception:
+                                pass
+
                             task.wait_for_completion(status_callback=status_callback)
                             # Defensive: verify the task actually reached COMPLETED before moving on.
                             info_check = None
@@ -830,8 +835,13 @@ class Task:
                             if info_check:
                                 status_val = getattr(info_check, "status", None)
                                 progress_val = getattr(info_check, "progress", None)
-                                log.ODM_INFO("LRE: post-completion status check for %s (%s): status=%s code=%s progress=%s"
-                                             % (self, task.uuid, status_val, getattr(status_val, "value", status_val), progress_val))
+                                try:
+                                    log.ODM_INFO("LRE: post-completion status check for %s (%s): raw=%s"
+                                                 % (self, task.uuid, info_check._raw if hasattr(info_check, "_raw") else info_check))
+                                except Exception:
+                                    log.ODM_INFO("LRE: post-completion status check for %s (%s): status=%s code=%s progress=%s (missing_progress=%s)"
+                                                 % (self, task.uuid, status_val, getattr(status_val, "value", status_val),
+                                                    progress_val, progress_val is None))
 
                             status_running = info_check and getattr(info_check, "status", None) == TaskStatus.RUNNING
                             progress_hundred = info_check and getattr(info_check, "progress", None) is not None and getattr(info_check, "progress", None) >= 100
