@@ -41,7 +41,23 @@ class LocalRemoteExecutor:
     """
     def __init__(self, nodeUrl, rolling_shutter = False, rerun = False):
         # Ensure token is present if provided via environment and not already on the URL.
-        parsed = urlparse(nodeUrl if "://" in nodeUrl else f"http://{nodeUrl}")
+        # Default to https when targeting port 443 and scheme is missing.
+        if "://" not in nodeUrl:
+            # Heuristic: use https for port 443, else http.
+            try:
+                hostpart = nodeUrl
+                # Extract port if present
+                port_guess = None
+                if ":" in nodeUrl:
+                    hostpart, port_str = nodeUrl.rsplit(":", 1)
+                    if port_str.isdigit():
+                        port_guess = int(port_str)
+                scheme_guess = "https" if port_guess == 443 else "http"
+                nodeUrl = f"{scheme_guess}://{nodeUrl}"
+            except Exception:
+                nodeUrl = f"http://{nodeUrl}"
+
+        parsed = urlparse(nodeUrl)
         query = parse_qs(parsed.query)
         if "token" not in query or not query.get("token"):
             env_token = os.environ.get("ODM_NODE_TOKEN")
