@@ -821,7 +821,24 @@ class Task:
                     while True:
                         try:
                             try:
-                                log.ODM_INFO("LRE: polling %s/task/%s/info" % (getattr(self.node, "url", self.node.host), task.uuid))
+                                node_url = None
+                                candidate = getattr(self.node, "url", None)
+                                if callable(candidate):
+                                    try:
+                                        node_url = candidate()
+                                    except Exception:
+                                        node_url = None
+                                else:
+                                    node_url = candidate
+
+                                if not node_url:
+                                    proto = getattr(self.node, "protocol", "http")
+                                    host = getattr(self.node, "host", "")
+                                    port = getattr(self.node, "port", "")
+                                    port_part = f":{port}" if port else ""
+                                    node_url = f"{proto}://{host}{port_part}"
+
+                                log.ODM_INFO("LRE: polling %s/task/%s/info" % (node_url, task.uuid))
                             except Exception:
                                 pass
 
@@ -836,8 +853,9 @@ class Task:
                                 status_val = getattr(info_check, "status", None)
                                 progress_val = getattr(info_check, "progress", None)
                                 try:
+                                    raw_payload = info_check._raw if hasattr(info_check, "_raw") else getattr(info_check, "__dict__", info_check)
                                     log.ODM_INFO("LRE: post-completion status check for %s (%s): raw=%s"
-                                                 % (self, task.uuid, info_check._raw if hasattr(info_check, "_raw") else info_check))
+                                                 % (self, task.uuid, raw_payload))
                                 except Exception:
                                     log.ODM_INFO("LRE: post-completion status check for %s (%s): status=%s code=%s progress=%s (missing_progress=%s)"
                                                  % (self, task.uuid, status_val, getattr(status_val, "value", status_val),
