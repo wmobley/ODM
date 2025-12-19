@@ -827,8 +827,16 @@ class Task:
                                 info_check = task.info(with_output=-3)
                             except Exception:
                                 info_check = None
+                            if info_check:
+                                status_val = getattr(info_check, "status", None)
+                                progress_val = getattr(info_check, "progress", None)
+                                log.ODM_INFO("LRE: post-completion status check for %s (%s): status=%s code=%s progress=%s"
+                                             % (self, task.uuid, status_val, getattr(status_val, "value", status_val), progress_val))
 
-                            if info_check and getattr(info_check, "status", None) == TaskStatus.RUNNING:
+                            status_running = info_check and getattr(info_check, "status", None) == TaskStatus.RUNNING
+                            progress_hundred = info_check and getattr(info_check, "progress", None) is not None and getattr(info_check, "progress", None) >= 100
+
+                            if status_running and not progress_hundred:
                                 # Some path-based tasks on ClusterODM/NodeODM can briefly report completion;
                                 # keep polling until the backend switches to COMPLETED.
                                 log.ODM_WARNING("LRE: %s (%s) reported completion but is still RUNNING; continuing to poll"
