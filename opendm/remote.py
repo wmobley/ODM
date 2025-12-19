@@ -39,6 +39,12 @@ class LocalRemoteExecutor:
     network node.
     """
     def __init__(self, nodeUrl, rolling_shutter = False, rerun = False):
+        # Ensure token is present if provided via environment and not already on the URL.
+        if "token=" not in nodeUrl:
+            env_token = os.environ.get("ODM_NODE_TOKEN")
+            if env_token:
+                sep = "&" if "?" in nodeUrl else "?"
+                nodeUrl = f"{nodeUrl}{sep}token={env_token}"
         self.node = Node.from_url(nodeUrl)
         self.params = {
             'tasks': [],
