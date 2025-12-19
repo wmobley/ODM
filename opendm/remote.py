@@ -821,6 +821,20 @@ class Task:
                     while True:
                         try:
                             task.wait_for_completion(status_callback=status_callback)
+                            # Defensive: verify the task actually reached COMPLETED before moving on.
+                            info_check = None
+                            try:
+                                info_check = task.info(with_output=-3)
+                            except Exception:
+                                info_check = None
+
+                            if info_check and getattr(info_check, "status", None) == TaskStatus.RUNNING:
+                                # Some path-based tasks on ClusterODM/NodeODM can briefly report completion;
+                                # keep polling until the backend switches to COMPLETED.
+                                log.ODM_WARNING("LRE: %s (%s) reported completion but is still RUNNING; continuing to poll"
+                                                % (self, task.uuid))
+                                time.sleep(5)
+                                continue
                             break
                         except exceptions.TaskFailedError:
                             # Bubble up task failures (handled below)
