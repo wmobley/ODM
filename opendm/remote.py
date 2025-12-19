@@ -8,6 +8,7 @@ import hashlib
 import json
 import shutil
 import requests
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from opendm import log
 from opendm import system
 from opendm import config
@@ -40,11 +41,25 @@ class LocalRemoteExecutor:
     """
     def __init__(self, nodeUrl, rolling_shutter = False, rerun = False):
         # Ensure token is present if provided via environment and not already on the URL.
-        if "token=" not in nodeUrl:
+        parsed = urlparse(nodeUrl if "://" in nodeUrl else f"http://{nodeUrl}")
+        query = parse_qs(parsed.query)
+        if "token" not in query or not query.get("token"):
             env_token = os.environ.get("ODM_NODE_TOKEN")
+            # Try port-specific token first (ODM_NODE_TOKEN_<PORT>)
+            port = parsed.port
+            if port:
+                env_token = os.environ.get(f"ODM_NODE_TOKEN_{port}", env_token)
             if env_token:
-                sep = "&" if "?" in nodeUrl else "?"
-                nodeUrl = f"{nodeUrl}{sep}token={env_token}"
+                query["token"] = [env_token]
+                new_query = urlencode(query, doseq=True)
+                parsed = parsed._replace(query=new_query)
+                # Preserve original scheme/netloc if provided; if we injected http://, strip it back out
+                rebuilt = urlunparse(parsed)
+                if nodeUrl.startswith("http://") or nodeUrl.startswith("https://"):
+                    nodeUrl = rebuilt
+                else:
+                    # remove the injected scheme when caller passed host:port
+                    nodeUrl = rebuilt.split("://", 1)[-1]
         self.node = Node.from_url(nodeUrl)
         self.params = {
             'tasks': [],
