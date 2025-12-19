@@ -471,17 +471,71 @@ class Task:
         # Prefer import_path when enabled and supported to avoid seed.zip transfers
         task = None
         seed_file = None
+
+        def log_import_path_status(label_path):
+            try:
+                if not label_path:
+                    return
+                if not os.path.exists(label_path):
+                    log.ODM_WARNING("LRE: import_path %s does not exist yet" % label_path)
+                    return
+                stats = os.stat(label_path)
+                kind = "dir" if os.path.isdir(label_path) else "file"
+                top_entries = []
+                if os.path.isdir(label_path):
+                    try:
+                        top_entries = os.listdir(label_path)[:10]
+                    except Exception:
+                        top_entries = []
+                image_count = 0
+                try:
+                    import glob
+                    patterns = ["*.jpg", "*.jpeg", "*.JPG", "*.JPEG", "*.png", "*.PNG", "*.tif", "*.tiff", "*.TIF", "*.TIFF"]
+                    for pat in patterns:
+                        image_count += len(glob.glob(os.path.join(label_path, "**", pat), recursive=True))
+                except Exception:
+                    image_count = 0
+                log.ODM_INFO("LRE: import_path status %s (%s): size=%s mtime=%s images≈%s entries=%s" %
+                             (label_path, kind, stats.st_size, stats.st_mtime, image_count, ",".join(top_entries)))
+            except Exception as e:
+                log.ODM_WARNING("LRE: failed to log import_path status for %s: %s" % (label_path, str(e)))
+
         # Optionally re-root the import_path to a shared base (e.g., Tapis working dir)
         import_path_base = os.environ.get("ODM_IMPORT_PATH_BASE") or os.environ.get("_tapisJobWorkingDir")
         import_path_override = None
-        if use_import_path and import_path_base:
+        if use_import_path:
+            rel = None
             try:
                 # If project_path is under /var/www/data, preserve the relative portion
                 rel = os.path.relpath(self.project_path, "/var/www/data")
-                import_path_override = os.path.normpath(os.path.join(import_path_base, rel))
             except Exception:
-                # Fallback: use project_path as-is
-                import_path_override = None
+                rel = None
+
+            # Best-effort discovery of the runtime data base when ODM_IMPORT_PATH_BASE is not set.
+            # Look for the active nodeodm runtime in the Tapis working directory to avoid missing
+            # the "nodeodm_workdir_*" segment (which led to ENOENT in ClusterODM logs).
+            if not import_path_base and rel:
+                job_dir = os.environ.get("_tapisJobWorkingDir")
+                if job_dir:
+                    try:
+                        import glob
+                        # rel usually looks like "<uuid>/submodels/submodel_xxxx"
+                        project_uuid = rel.split(os.sep)[0]
+                        pattern = os.path.join(job_dir, "nodeodm_workdir*", "runtime", "data", project_uuid)
+                        matches = glob.glob(pattern)
+                        if matches:
+                            import_path_base = os.path.join(os.path.dirname(matches[0]))
+                            log.ODM_INFO("LRE: Discovered import_path base via _tapisJobWorkingDir: %s" % import_path_base)
+                    except Exception as e:
+                        log.ODM_WARNING("LRE: Failed autodetecting import_path base from _tapisJobWorkingDir: %s" % str(e))
+
+            if import_path_base and rel:
+                try:
+                    import_path_override = os.path.normpath(os.path.join(import_path_base, rel))
+                except Exception:
+                    import_path_override = None
+
+            log_import_path_status(import_path_override or self.project_path)
 
         if use_import_path:
             try:
