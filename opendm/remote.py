@@ -894,6 +894,8 @@ class Task:
                                 progress_val = getattr(info_check, "progress", None)
 
                                 raw_payload = info_check.__dict__
+                                log.ODM_INFO(info_check)
+                                log.ODM_INFO(raw_payload)
                                 log.ODM_INFO("LRE: post-completion status check for %s (%s): raw=%s"
                                                 % (self, task.uuid, raw_payload))
 
