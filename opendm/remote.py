@@ -751,12 +751,17 @@ class Task:
 
                         def info(self, with_output=None):
                             try:
+                                log.ODM_INFO("LRE: Attempting to get info for import_path task %s" % self.node)
                                 fn = getattr(self.node, "get_task_info", None)
                                 if callable(fn):
                                     return fn(self.uuid, with_output=with_output)
                             except Exception:
-                                pass
-
+                                return None
+                            # Fallback: return a minimal object
+                            class Info:
+                                status = TaskStatus.RUNNING
+                                processing_time = 0
+                                output = []
                             return Info()
 
                         def wait_for_completion(self, *args, **kwargs):
