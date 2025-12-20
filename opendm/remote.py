@@ -872,6 +872,7 @@ class Task:
                                     node_url = candidate
 
                                 if not node_url:
+                                    log.ODM_INF(f"Wills DEBUG node {self.node.__dict__}")
                                     proto = getattr(self.node, "protocol", "http")
                                     host = getattr(self.node, "host", "")
                                     port = getattr(self.node, "port", "")
