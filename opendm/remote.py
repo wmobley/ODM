@@ -756,11 +756,7 @@ class Task:
                                     return fn(self.uuid, with_output=with_output)
                             except Exception:
                                 pass
-                            # Fallback: return a minimal object
-                            class Info:
-                                status = TaskStatus.RUNNING
-                                processing_time = 0
-                                output = []
+
                             return Info()
 
                         def wait_for_completion(self, *args, **kwargs):
