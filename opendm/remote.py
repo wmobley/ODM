@@ -904,7 +904,7 @@ class Task:
                                                 % (self, task.uuid, status_val, getattr(status_val, "code", status_val),
                                                 progress_val, progress_val is None))
 
-                            status_running = info_check and getattr(info_check, "status", None) == TaskStatus.RUNNING
+                            status_running = status_val == "TaskStatus.RUNNING"
                             progress_hundred = info_check and getattr(info_check, "progress", None) is not None and getattr(info_check, "progress", None) >= 100
 
                             if status_running and not progress_hundred:
