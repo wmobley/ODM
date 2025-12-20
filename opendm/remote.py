@@ -58,6 +58,9 @@ class LocalRemoteExecutor:
                 nodeUrl = f"http://{nodeUrl}"
 
         parsed = urlparse(nodeUrl)
+        # If caller provided http on port 443, upgrade to https for proper access.
+        if parsed.scheme == "http" and parsed.port == 443:
+            parsed = parsed._replace(scheme="https")
         query = parse_qs(parsed.query)
         if "token" not in query or not query.get("token"):
             env_token = os.environ.get("ODM_NODE_TOKEN")
@@ -890,7 +893,7 @@ class Task:
                                 status_val = getattr(info_check, "status", None)
                                 progress_val = getattr(info_check, "progress", None)
                                 try:
-                                    raw_payload = info_check._raw if hasattr(info_check, "_raw") else getattr(info_check, "__dict__", info_check)
+                                    raw_payload = info_check.__dict__
                                     log.ODM_INFO("LRE: post-completion status check for %s (%s): raw=%s"
                                                  % (self, task.uuid, raw_payload))
                                 except Exception:
