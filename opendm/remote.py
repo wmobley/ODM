@@ -892,14 +892,14 @@ class Task:
                             if info_check:
                                 status_val = getattr(info_check, "status", None)
                                 progress_val = getattr(info_check, "progress", None)
-                                try:
-                                    raw_payload = info_check.__dict__
-                                    log.ODM_INFO("LRE: post-completion status check for %s (%s): raw=%s"
-                                                 % (self, task.uuid, raw_payload))
-                                except Exception:
-                                    log.ODM_INFO("LRE: post-completion status check for %s (%s): status=%s code=%s progress=%s (missing_progress=%s)"
-                                                 % (self, task.uuid, status_val, getattr(status_val, "value", status_val),
-                                                    progress_val, progress_val is None))
+
+                                raw_payload = info_check.__dict__
+                                log.ODM_INFO("LRE: post-completion status check for %s (%s): raw=%s"
+                                                % (self, task.uuid, raw_payload))
+
+                                log.ODM_INFO("LRE: post-completion status check for %s (%s): status=%s code=%s progress=%s (missing_progress=%s)"
+                                                % (self, task.uuid, status_val, getattr(status_val, "code", status_val),
+                                                progress_val, progress_val is None))
 
                             status_running = info_check and getattr(info_check, "status", None) == TaskStatus.RUNNING
                             progress_hundred = info_check and getattr(info_check, "progress", None) is not None and getattr(info_check, "progress", None) >= 100
