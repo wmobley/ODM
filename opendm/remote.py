@@ -751,18 +751,14 @@ class Task:
 
                         def info(self, with_output=None):
                             try:
-                                log.ODM_INFO("LRE: Attempting to get info for import_path task %s" % self.node)
+                                log.ODM_INFO("LRE: Attempting to get info for import_path task %s via %s" % (self, getattr(self.node, "url", self.node)))
                                 fn = getattr(self.node, "get_task_info", None)
                                 if callable(fn):
                                     return fn(self.uuid, with_output=with_output)
                             except Exception:
                                 return None
-                            # Fallback: return a minimal object
-                            class Info:
-                                status = TaskStatus.RUNNING
-                                processing_time = 0
-                                output = []
-                            return Info()
+                            # Fallback: return None to signal that info is unavailable
+                            return None
 
                         def wait_for_completion(self, *args, **kwargs):
                             # Try native wait if available
@@ -891,22 +887,30 @@ class Task:
                                 info_check = task.info(with_output=-3)
                             except Exception:
                                 info_check = None
-                            if info_check:
-                                status_val = getattr(info_check, "status", None)
-                                progress_val = getattr(info_check, "progress", None)
 
-                                raw_payload = info_check.__dict__
-                                log.ODM_INFO(info_check)
-                                log.ODM_INFO(raw_payload)
-                                log.ODM_INFO("LRE: post-completion status check for %s (%s): raw=%s"
-                                                % (self, task.uuid, raw_payload))
+                            status_val = getattr(info_check, "status", None) if info_check else None
+                            progress_val = getattr(info_check, "progress", None) if info_check else None
+
+                            if info_check:
+                                try:
+                                    raw_payload = getattr(info_check, "_raw", None)
+                                    if raw_payload is None:
+                                        raw_payload = getattr(info_check, "__dict__", info_check)
+                                    log.ODM_INFO("LRE: post-completion status check for %s (%s): raw=%s"
+                                                 % (self, task.uuid, raw_payload))
+                                except Exception:
+                                    pass
 
                                 log.ODM_INFO("LRE: post-completion status check for %s (%s): status=%s code=%s progress=%s (missing_progress=%s)"
-                                                % (self, task.uuid, status_val, getattr(status_val, "code", status_val),
+                                             % (self, task.uuid, status_val, getattr(status_val, "code", status_val),
                                                 progress_val, progress_val is None))
 
-                            status_running = status_val == "TaskStatus.RUNNING"
-                            progress_hundred = info_check and getattr(info_check, "progress", None) is not None and getattr(info_check, "progress", None) >= 100
+                            status_running = (
+                                status_val == TaskStatus.RUNNING
+                                or getattr(status_val, "code", None) == TaskStatus.RUNNING.value
+                                or getattr(status_val, "code", None) == 20
+                            )
+                            progress_hundred = progress_val is not None and progress_val >= 100
 
                             if status_running and not progress_hundred:
                                 # Some path-based tasks on ClusterODM/NodeODM can briefly report completion;
