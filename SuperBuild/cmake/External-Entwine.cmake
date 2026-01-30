@@ -2,7 +2,7 @@ set(_proj_name entwine)
 set(_SB_BINARY_DIR "${SB_BINARY_DIR}/${_proj_name}")
 
 if (NOT WIN32)
-  set(EXTRA_CMAKE_ARGS -DCMAKE_CXX_FLAGS=-isystem\ ${SB_SOURCE_DIR}/pdal\ -std=gnu++14)
+  set(EXTRA_CMAKE_ARGS -DCMAKE_CXX_FLAGS=-isystem\ ${SB_SOURCE_DIR}/pdal)
 endif()
 
 ExternalProject_Add(${_proj_name}
@@ -25,7 +25,7 @@ ExternalProject_Add(${_proj_name}
     -DWITH_ZSTD=OFF
     -DWITH_CURL=OFF
     -DWITH_OPENSSL=OFF
-    -DCMAKE_CXX_STANDARD=14
+    -DCMAKE_CXX_STANDARD=17
     -DCMAKE_CXX_STANDARD_REQUIRED=ON
     -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
     -DCMAKE_INSTALL_PREFIX:PATH=${SB_INSTALL_DIR}
