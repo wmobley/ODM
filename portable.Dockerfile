@@ -1,5 +1,7 @@
 FROM ubuntu:24.04 AS builder
 
+ARG ODM_BUILD_PROCESSES=4
+
 # Env variables
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONPATH="$PYTHONPATH:/code/SuperBuild/install/lib/python3.12/dist-packages:/code/SuperBuild/install/bin/opensfm" \
@@ -12,7 +14,7 @@ WORKDIR /code
 COPY . ./
 
 # Run the build
-RUN PORTABLE_INSTALL=YES bash configure.sh install
+RUN PORTABLE_INSTALL=YES bash configure.sh install ${ODM_BUILD_PROCESSES}
 
 # (Tests skipped in CI Docker build to reduce duration; run separately if needed)
 ENV PATH="/code/venv/bin:$PATH"
