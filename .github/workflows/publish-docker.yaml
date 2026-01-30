@@ -43,6 +43,8 @@ jobs:
       with:
         file: ./portable.Dockerfile
         platforms: linux/amd64
+        build-args: |
+          ODM_BUILD_PROCESSES=4
         push: true
         cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/odm:buildcache
         cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/odm:buildcache,mode=max
