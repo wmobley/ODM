@@ -25,7 +25,7 @@ index d005f271e..9591784ab 100644
 +++ b/pdal/util/Utils.hpp
 @@ -996,8 +996,7 @@ namespace Utils
      }
-
+ 
      // Optimization of above.
 -    template<>
 -    inline StatusWithReason fromString(const std::string& from, std::string& to)
@@ -74,16 +74,30 @@ index d005f271e..9591784ab 100644
          if (s == "nan" || s == "NaN")
          {
 diff --git a/cmake/zstd.cmake b/cmake/zstd.cmake
-index f6b5f0b..e7a4e7c 100644
+index f6b5f0b..8d311b2 100644
 --- a/cmake/zstd.cmake
 +++ b/cmake/zstd.cmake
-@@ -4,7 +4,7 @@
+@@ -4,8 +4,22 @@
  #
  option(WITH_ZSTD
      "Build support for compression/decompression with Zstd." TRUE)
  if (WITH_ZSTD)
 -    find_package(zstd CONFIG QUIET)
 +    find_package(ZSTD QUIET)
++    if (NOT ZSTD_FOUND)
++        find_library(ZSTD_LIBRARY NAMES zstd)
++        find_path(ZSTD_INCLUDE_DIR NAMES zstd.h)
++        if (ZSTD_LIBRARY AND ZSTD_INCLUDE_DIR)
++            set(ZSTD_FOUND TRUE)
++        endif()
++    endif()
++    if (ZSTD_FOUND AND NOT TARGET zstd::libzstd)
++        add_library(zstd::libzstd UNKNOWN IMPORTED)
++        set_target_properties(zstd::libzstd PROPERTIES
++            IMPORTED_LOCATION ${ZSTD_LIBRARY}
++            INTERFACE_INCLUDE_DIRECTORIES ${ZSTD_INCLUDE_DIR}
++        )
++    endif()
      set_package_properties(ZSTD PROPERTIES TYPE
          PURPOSE "General compression support")
      if (ZSTD_FOUND)

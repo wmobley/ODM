@@ -9,6 +9,15 @@ else()
 set(LASZIP_LIB "${SB_INSTALL_DIR}/lib/liblaszip.so")
 endif()
 
+if (NOT APPLE AND NOT WIN32)
+  if (NOT ZSTD_LIBRARY)
+    set(ZSTD_LIBRARY "/usr/lib/x86_64-linux-gnu/libzstd.so")
+  endif()
+  if (NOT ZSTD_INCLUDE_DIR)
+    set(ZSTD_INCLUDE_DIR "/usr/include")
+  endif()
+endif()
+
 ExternalProject_Add(${_proj_name}
   DEPENDS           hexer laszip
   PREFIX            ${_SB_BINARY_DIR}
