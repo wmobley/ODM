@@ -19,3 +19,71 @@ index 542dc1a6a..9e66aae59 100644
  
      int width() const;
      int height() const;
+diff --git a/pdal/util/Utils.hpp b/pdal/util/Utils.hpp
+index d005f271e..9591784ab 100644
+--- a/pdal/util/Utils.hpp
++++ b/pdal/util/Utils.hpp
+@@ -996,8 +996,7 @@ namespace Utils
+     }
+
+     // Optimization of above.
+-    template<>
+-    inline StatusWithReason fromString(const std::string& from, std::string& to)
++    inline StatusWithReason fromString(const std::string& from, std::string& to)
+     {
+         to = from;
+         return true;
+@@ -1011,8 +1010,7 @@ namespace Utils
+       \param to  Converted numeric value.
+       \return  \c true if the conversion was successful, \c false otherwise.
+     */
+-    template<>
+-    inline StatusWithReason fromString(const std::string& s, char& to)
++    inline StatusWithReason fromString(const std::string& s, char& to)
+     {
+         try
+         {
+@@ -1040,8 +1038,7 @@ namespace Utils
+       \param to  Converted numeric value.
+       \return  \c true if the conversion was successful, \c false otherwise.
+     */
+-    template<>
+-    inline StatusWithReason fromString(const std::string& s, unsigned char& to)
++    inline StatusWithReason fromString(const std::string& s, unsigned char& to)
+     {
+         try
+         {
+@@ -1071,8 +1068,7 @@ namespace Utils
+       \param to  Converted numeric value.
+       \return  \c true if the conversion was successful, \c false otherwise.
+     */
+-    template<>
+-    inline StatusWithReason fromString(const std::string& s, signed char& to)
++    inline StatusWithReason fromString(const std::string& s, signed char& to)
+     {
+         try
+         {
+@@ -1099,8 +1095,7 @@ namespace Utils
+       \param d  Converted value.
+       \return  \c true if the conversion was successful, \c false otherwise.
+     */
+-    template<>
+-    inline StatusWithReason fromString(const std::string& s, double& d)
++    inline StatusWithReason fromString(const std::string& s, double& d)
+     {
+         if (s == "nan" || s == "NaN")
+         {
+diff --git a/cmake/zstd.cmake b/cmake/zstd.cmake
+index f6b5f0b..e7a4e7c 100644
+--- a/cmake/zstd.cmake
++++ b/cmake/zstd.cmake
+@@ -4,7 +4,7 @@
+ #
+ option(WITH_ZSTD
+     "Build support for compression/decompression with Zstd." TRUE)
+ if (WITH_ZSTD)
+-    find_package(zstd CONFIG QUIET)
++    find_package(ZSTD QUIET)
+     set_package_properties(ZSTD PROPERTIES TYPE
+         PURPOSE "General compression support")
+     if (ZSTD_FOUND)

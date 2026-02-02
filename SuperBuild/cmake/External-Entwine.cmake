@@ -16,10 +16,12 @@ ExternalProject_Add(${_proj_name}
   GIT_TAG           2.1.0
   #--Update/Patch step----------
   UPDATE_COMMAND    ""
+  PATCH_COMMAND     git apply ${CMAKE_MODULE_PATH}/entwine.patch
   #--Configure step-------------
   SOURCE_DIR        ${SB_SOURCE_DIR}/${_proj_name}
   CMAKE_ARGS
     ${EXTRA_CMAKE_ARGS}
+    -DPDAL_DIR=${SB_INSTALL_DIR}/lib/cmake/PDAL
     -DADDITIONAL_LINK_DIRECTORIES_PATHS=${SB_INSTALL_DIR}/lib
     -DWITH_TESTS=OFF
     -DWITH_ZSTD=OFF

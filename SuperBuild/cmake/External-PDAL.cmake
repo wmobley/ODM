@@ -24,6 +24,11 @@ ExternalProject_Add(${_proj_name}
   #--Configure step-------------
   SOURCE_DIR        ${SB_SOURCE_DIR}/${_proj_name}
   CMAKE_ARGS
+    -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}
+    -Dzstd_DIR=${zstd_DIR}
+    -Dzstd_ROOT=${zstd_ROOT}
+    -DZSTD_LIBRARY=${ZSTD_LIBRARY}
+    -DZSTD_INCLUDE_DIR=${ZSTD_INCLUDE_DIR}
     -DBUILD_PGPOINTCLOUD_TESTS=OFF
     -DBUILD_PLUGIN_PGPOINTCLOUD=OFF
     -DBUILD_PLUGIN_CPD=OFF
@@ -37,7 +42,7 @@ ExternalProject_Add(${_proj_name}
     -DBUILD_PLUGIN_SQLITE=OFF
     -DBUILD_PLUGIN_RIVLIB=OFF
     -DBUILD_PLUGIN_PYTHON=OFF
-    -DWITH_ZSTD=OFF
+    -DWITH_ZSTD=ON
     -DENABLE_CTEST=OFF
     -DWITH_APPS=ON
     -DWITH_LAZPERF=OFF
@@ -62,4 +67,3 @@ ExternalProject_Add(${_proj_name}
   LOG_CONFIGURE     OFF
   LOG_BUILD         OFF
 )
-
