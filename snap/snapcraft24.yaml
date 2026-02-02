@@ -44,6 +44,7 @@ parts:
       - libjsoncpp-dev
       - libssl-dev
       - libusb-1.0-0-dev
+      - libzstd-dev
       - ninja-build
       - pkg-config
       - pybind11-dev
