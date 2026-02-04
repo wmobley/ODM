@@ -19,6 +19,8 @@ ENV PATH="/code/venv/bin:$PATH"
 RUN bash test.sh
 
 # Build and install PotreeConverter for point cloud tiling fallback
+ARG POTREECACHEBUST=0
+RUN echo "POTREECACHEBUST=${POTREECACHEBUST}"
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     git cmake g++ make libtbb-dev libboost-all-dev liblaszip-dev libeigen3-dev \
