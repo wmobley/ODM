@@ -27,33 +27,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/* \
   && if ! command -v PotreeConverter >/dev/null 2>&1; then \
        git clone --depth 1 --branch 1.7 https://github.com/potree/PotreeConverter.git /tmp/PotreeConverter; \
-       cat > /tmp/patch_potree.py <<'PY'
-from pathlib import Path
-
-# Add missing includes + fs alias for older PotreeConverter sources
-stuff = Path('/tmp/PotreeConverter/PotreeConverter/include/stuff.h')
-if stuff.exists():
-    text = stuff.read_text()
-    if '#include <filesystem>' not in text:
-        text = text.replace('#include <string>\n', '#include <string>\n#include <filesystem>\n', 1)
-    if 'namespace fs = std::filesystem;' not in text:
-        text = text.replace('using std::string;\n', 'using std::string;\nnamespace fs = std::filesystem;\n', 1)
-    stuff.write_text(text)
-
-bin_reader = Path('/tmp/PotreeConverter/PotreeConverter/src/BINPointReader.cpp')
-if bin_reader.exists():
-    text = bin_reader.read_text()
-    if '#include <cstdint>' not in text:
-        text = text.replace('#include "BINPointReader.h"\n', '#include "BINPointReader.h"\n#include <cstdint>\n', 1)
-    if '#include <cstring>' not in text:
-        text = text.replace('#include "BINPointReader.h"\n#include <cstdint>\n', '#include "BINPointReader.h"\n#include <cstdint>\n#include <cstring>\n', 1)
-    if '#include <filesystem>' not in text:
-        text = text.replace('#include "BINPointReader.h"\n#include <cstdint>\n#include <cstring>\n', '#include "BINPointReader.h"\n#include <cstdint>\n#include <cstring>\n#include <filesystem>\n', 1)
-    if 'namespace fs = std::filesystem;' not in text:
-        text = text.replace('#include <filesystem>\n', '#include <filesystem>\nnamespace fs = std::filesystem;\n', 1)
-    bin_reader.write_text(text)
-PY
-       python3 /tmp/patch_potree.py; \
+       python3 /code/docker/patch_potree.py /tmp/PotreeConverter; \
        cmake -S /tmp/PotreeConverter -B /tmp/PotreeConverter/build -DCMAKE_BUILD_TYPE=Release; \
        cmake --build /tmp/PotreeConverter/build -j"$(nproc)"; \
        cp /tmp/PotreeConverter/build/PotreeConverter /code/SuperBuild/install/bin/; \
