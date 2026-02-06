@@ -52,6 +52,12 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
 
+    - name: Verify PotreeConverter v1 is installed
+      if: ${{ success() }}
+      run: |
+        docker pull ghcr.io/${{ github.repository_owner }}/odm:latest
+        docker run --rm --entrypoint sh ghcr.io/${{ github.repository_owner }}/odm:latest -lc 'which PotreeConverter && PotreeConverter --version'
+
     - name: Dispatch NodeODM build
       if: ${{ success() }}
       env:
