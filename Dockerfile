@@ -26,7 +26,7 @@ RUN apt-get update \
     git cmake g++ make libtbb-dev libboost-all-dev liblaszip-dev libeigen3-dev \
   && rm -rf /var/lib/apt/lists/* \
   && if ! command -v PotreeConverter >/dev/null 2>&1; then \
-       git clone --depth 1 https://github.com/potree/PotreeConverter.git /tmp/PotreeConverter; \
+       git clone --depth 1 --branch 1.7 https://github.com/potree/PotreeConverter.git /tmp/PotreeConverter; \
        cmake -S /tmp/PotreeConverter -B /tmp/PotreeConverter/build -DCMAKE_BUILD_TYPE=Release; \
        cmake --build /tmp/PotreeConverter/build -j"$(nproc)"; \
        cp /tmp/PotreeConverter/build/PotreeConverter /code/SuperBuild/install/bin/; \
