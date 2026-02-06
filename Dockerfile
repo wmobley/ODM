@@ -20,18 +20,20 @@ RUN bash test.sh
 
 # Build and install PotreeConverter for point cloud tiling fallback
 ARG POTREECACHEBUST=0
-RUN echo "POTREECACHEBUST=${POTREECACHEBUST}"
-RUN apt-get update \
+RUN echo "POTREECACHEBUST=${POTREECACHEBUST}" \
+  && apt-get update \
   && apt-get install -y --no-install-recommends \
     git cmake g++ make libtbb-dev libboost-all-dev liblaszip-dev libeigen3-dev \
   && rm -rf /var/lib/apt/lists/* \
   && if ! command -v PotreeConverter >/dev/null 2>&1; then \
-       git clone --depth 1 --branch 1.7 https://github.com/potree/PotreeConverter.git /tmp/PotreeConverter; \
-       python3 /code/docker/patch_potree.py /tmp/PotreeConverter; \
-       cmake -S /tmp/PotreeConverter -B /tmp/PotreeConverter/build -DCMAKE_BUILD_TYPE=Release; \
-       cmake --build /tmp/PotreeConverter/build -j"$(nproc)"; \
-       cp /tmp/PotreeConverter/build/PotreeConverter /code/SuperBuild/install/bin/; \
-       test -x /code/SuperBuild/install/bin/PotreeConverter; \
+       git clone --depth 1 --branch 1.7 https://github.com/potree/PotreeConverter.git /tmp/PotreeConverter \
+       && python3 /code/docker/patch_potree.py /tmp/PotreeConverter \
+       && cmake -S /tmp/PotreeConverter -B /tmp/PotreeConverter/build -DCMAKE_BUILD_TYPE=Release \
+       && cmake --build /tmp/PotreeConverter/build -j"$(nproc)" \
+       && POTREE_BIN="$(find /tmp/PotreeConverter/build -type f -name PotreeConverter -perm -u+x -print -quit)" \
+       && test -n "$POTREE_BIN" \
+       && install -m 755 "$POTREE_BIN" /code/SuperBuild/install/bin/PotreeConverter \
+       && test -x /code/SuperBuild/install/bin/PotreeConverter; \
      fi \
   && rm -rf /tmp/PotreeConverter
 
