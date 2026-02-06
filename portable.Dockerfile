@@ -28,7 +28,33 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/* \
   && if ! command -v PotreeConverter >/dev/null 2>&1; then \
        git clone --depth 1 --branch 1.7 https://github.com/potree/PotreeConverter.git /tmp/PotreeConverter; \
-       python3 - <<'PY'\nfrom pathlib import Path\n\n# Add missing includes + fs alias for older PotreeConverter sources\nstuff = Path('/tmp/PotreeConverter/PotreeConverter/include/stuff.h')\nif stuff.exists():\n    text = stuff.read_text()\n    if '#include <filesystem>' not in text:\n        text = text.replace('#include <string>\\n', '#include <string>\\n#include <filesystem>\\n', 1)\n    if 'namespace fs = std::filesystem;' not in text:\n        text = text.replace('using std::string;\\n', 'using std::string;\\nnamespace fs = std::filesystem;\\n', 1)\n    stuff.write_text(text)\n\nbin_reader = Path('/tmp/PotreeConverter/PotreeConverter/src/BINPointReader.cpp')\nif bin_reader.exists():\n    text = bin_reader.read_text()\n    if '#include <cstdint>' not in text:\n        text = text.replace('#include \"BINPointReader.h\"\\n', '#include \"BINPointReader.h\"\\n#include <cstdint>\\n', 1)\n    if '#include <cstring>' not in text:\n        text = text.replace('#include \"BINPointReader.h\"\\n#include <cstdint>\\n', '#include \"BINPointReader.h\"\\n#include <cstdint>\\n#include <cstring>\\n', 1)\n    if '#include <filesystem>' not in text:\n        text = text.replace('#include \"BINPointReader.h\"\\n#include <cstdint>\\n#include <cstring>\\n', '#include \"BINPointReader.h\"\\n#include <cstdint>\\n#include <cstring>\\n#include <filesystem>\\n', 1)\n    if 'namespace fs = std::filesystem;' not in text:\n        text = text.replace('#include <filesystem>\\n', '#include <filesystem>\\nnamespace fs = std::filesystem;\\n', 1)\n    bin_reader.write_text(text)\nPY\n+       \\\n*** End Patch}}
+       cat > /tmp/patch_potree.py <<'PY'
+from pathlib import Path
+
+# Add missing includes + fs alias for older PotreeConverter sources
+stuff = Path('/tmp/PotreeConverter/PotreeConverter/include/stuff.h')
+if stuff.exists():
+    text = stuff.read_text()
+    if '#include <filesystem>' not in text:
+        text = text.replace('#include <string>\n', '#include <string>\n#include <filesystem>\n', 1)
+    if 'namespace fs = std::filesystem;' not in text:
+        text = text.replace('using std::string;\n', 'using std::string;\nnamespace fs = std::filesystem;\n', 1)
+    stuff.write_text(text)
+
+bin_reader = Path('/tmp/PotreeConverter/PotreeConverter/src/BINPointReader.cpp')
+if bin_reader.exists():
+    text = bin_reader.read_text()
+    if '#include <cstdint>' not in text:
+        text = text.replace('#include "BINPointReader.h"\n', '#include "BINPointReader.h"\n#include <cstdint>\n', 1)
+    if '#include <cstring>' not in text:
+        text = text.replace('#include "BINPointReader.h"\n#include <cstdint>\n', '#include "BINPointReader.h"\n#include <cstdint>\n#include <cstring>\n', 1)
+    if '#include <filesystem>' not in text:
+        text = text.replace('#include "BINPointReader.h"\n#include <cstdint>\n#include <cstring>\n', '#include "BINPointReader.h"\n#include <cstdint>\n#include <cstring>\n#include <filesystem>\n', 1)
+    if 'namespace fs = std::filesystem;' not in text:
+        text = text.replace('#include <filesystem>\n', '#include <filesystem>\nnamespace fs = std::filesystem;\n', 1)
+    bin_reader.write_text(text)
+PY
+       python3 /tmp/patch_potree.py; \
        cmake -S /tmp/PotreeConverter -B /tmp/PotreeConverter/build -DCMAKE_BUILD_TYPE=Release; \
        cmake --build /tmp/PotreeConverter/build -j"$(nproc)"; \
        cp /tmp/PotreeConverter/build/PotreeConverter /code/SuperBuild/install/bin/; \
