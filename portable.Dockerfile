@@ -32,6 +32,7 @@ RUN apt-get update \
        cmake -S /tmp/PotreeConverter -B /tmp/PotreeConverter/build -DCMAKE_BUILD_TYPE=Release; \
        cmake --build /tmp/PotreeConverter/build -j"$(nproc)"; \
        cp /tmp/PotreeConverter/build/PotreeConverter /code/SuperBuild/install/bin/; \
+       test -x /code/SuperBuild/install/bin/PotreeConverter; \
        cp -R /tmp/PotreeConverter /code/PotreeConverter; \
      fi \
   && rm -rf /tmp/PotreeConverter
@@ -61,7 +62,8 @@ ENV PATH="/code/venv/bin:/code/SuperBuild/install/bin:$PATH"
 # Install shared libraries that we depend on via APT, but *not*
 # the -dev packages to save space!
 # Also run a smoke test on ODM and OpenSfM
-RUN bash configure.sh installruntimedepsonly \
+RUN ln -sf /code/SuperBuild/install/bin/PotreeConverter /usr/local/bin/PotreeConverter \
+  && bash configure.sh installruntimedepsonly \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
   && bash run.sh --help \

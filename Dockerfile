@@ -31,6 +31,7 @@ RUN apt-get update \
        cmake -S /tmp/PotreeConverter -B /tmp/PotreeConverter/build -DCMAKE_BUILD_TYPE=Release; \
        cmake --build /tmp/PotreeConverter/build -j"$(nproc)"; \
        cp /tmp/PotreeConverter/build/PotreeConverter /code/SuperBuild/install/bin/; \
+       test -x /code/SuperBuild/install/bin/PotreeConverter; \
      fi \
   && rm -rf /tmp/PotreeConverter
 
