@@ -29,7 +29,7 @@ RUN set -eux; echo "POTREECACHEBUST=${POTREECACHEBUST}" \
   && if ! command -v PotreeConverter >/dev/null 2>&1; then \
        git clone --depth 1 --branch 1.7 https://github.com/potree/PotreeConverter.git /tmp/PotreeConverter \
        && python3 /code/docker/patch_potree.py /tmp/PotreeConverter \
-       && cmake -S /tmp/PotreeConverter -B /tmp/PotreeConverter/build -DCMAKE_BUILD_TYPE=Release \
+       && cmake -S /tmp/PotreeConverter -B /tmp/PotreeConverter/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=17 \
        && cmake --build /tmp/PotreeConverter/build -j"$(nproc)" \
        && POTREE_BIN="$(find /tmp/PotreeConverter/build -type f -name PotreeConverter -print -quit)" \
        && test -n "$POTREE_BIN" \
