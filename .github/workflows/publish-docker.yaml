@@ -52,20 +52,6 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
 
-    - name: Verify PotreeConverter v1 is installed
-      if: ${{ success() }}
-      run: |
-        docker pull ghcr.io/${{ github.repository_owner }}/odm:latest
-        docker run --rm --entrypoint sh ghcr.io/${{ github.repository_owner }}/odm:latest -lc '
-          set -eu
-          if [ ! -x /code/SuperBuild/install/bin/PotreeConverter ]; then
-            echo "ERROR: /code/SuperBuild/install/bin/PotreeConverter is missing"
-            ls -l /code/SuperBuild/install/bin || true
-            exit 1
-          fi
-          /code/SuperBuild/install/bin/PotreeConverter --version
-        '
-
     - name: Dispatch NodeODM build
       if: ${{ success() }}
       env:

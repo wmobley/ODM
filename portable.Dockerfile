@@ -66,6 +66,8 @@ ENV PATH="/code/venv/bin:/code/SuperBuild/install/bin:$PATH"
 # Also run a smoke test on ODM and OpenSfM
 RUN ln -sf /code/SuperBuild/install/bin/PotreeConverter /usr/local/bin/PotreeConverter \
   && bash configure.sh installruntimedepsonly \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends liblaszip8 \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
   && bash run.sh --help \
