@@ -955,6 +955,30 @@ class Task:
                     log.ODM_INFO("LRE: Downloading assets for %s" % self)
                     task.download_assets(self.project_path, progress_callback=print_progress)
                     log.ODM_INFO("LRE: Downloaded and extracted assets for %s" % self)
+                    # Some import_path tasks extract into /var/www/data/<task_uuid> instead of the submodel path.
+                    # If key outputs are missing in the submodel path, try to copy from the task uuid folder.
+                    try:
+                        expected_paths = [
+                            os.path.join(self.project_path, "opensfm", "reconstruction.json"),
+                            os.path.join(self.project_path, "cameras.json"),
+                        ]
+                        if outputs and not any(os.path.exists(p) for p in expected_paths):
+                            data_root = os.path.dirname(os.path.dirname(os.path.dirname(self.project_path)))
+                            alt_root = os.path.join(data_root, task.uuid)
+                            if os.path.isdir(alt_root):
+                                log.ODM_WARNING("LRE: Expected outputs missing under %s; copying from %s" %
+                                                (self.project_path, alt_root))
+                                for rel in outputs:
+                                    src = os.path.join(alt_root, rel)
+                                    dst = os.path.join(self.project_path, rel)
+                                    if os.path.isdir(src):
+                                        os.makedirs(os.path.dirname(dst), exist_ok=True)
+                                        shutil.copytree(src, dst, dirs_exist_ok=True)
+                                    elif os.path.isfile(src):
+                                        os.makedirs(os.path.dirname(dst), exist_ok=True)
+                                        shutil.copy2(src, dst)
+                    except Exception as fix_exc:  # noqa: BLE001 - best effort fix
+                        log.ODM_WARNING("LRE: Failed to relocate import_path outputs for %s: %s" % (self, str(fix_exc)))
                     done()
                 except exceptions.TaskFailedError as e:
                     # Try to get output
