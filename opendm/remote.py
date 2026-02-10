@@ -755,7 +755,10 @@ class Task:
                                 fn = getattr(self.node, "get_task_info", None)
                                 if callable(fn):
                                     return fn(self.uuid, with_output=with_output)
-                            except Exception:
+                                log.ODM_WARNING("LRE: import_path task %s has no get_task_info method on node %s" %
+                                                (self.uuid, type(self.node).__name__))
+                            except Exception as info_exc:  # noqa: BLE001 - diagnostic logging
+                                log.ODM_WARNING("LRE: import_path task %s get_task_info failed: %s" % (self.uuid, str(info_exc)))
                                 return None
                             # Fallback: return None to signal that info is unavailable
                             return None
@@ -827,6 +830,9 @@ class Task:
 
         # Check status
         info = task.info()
+        if info is None:
+            log.ODM_WARNING("LRE: task.info() returned None for %s (%s); will proceed to status check and likely fail"
+                            % (self, getattr(task, "uuid", "unknown")))
         if info.status in [TaskStatus.RUNNING, TaskStatus.COMPLETED]:
             def monitor():
                 class nonloc:
