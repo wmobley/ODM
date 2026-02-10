@@ -14,7 +14,7 @@ from opendm import system
 from opendm import config
 from pyodm import Node, exceptions
 from pyodm.utils import AtomicCounter
-from pyodm.types import TaskStatus
+from pyodm.types import TaskInfo, TaskStatus
 from opendm.osfm import OSFMContext, get_submodel_args_dict, get_submodel_argv
 from opendm.utils import double_quote
 
@@ -755,8 +755,16 @@ class Task:
                                 fn = getattr(self.node, "get_task_info", None)
                                 if callable(fn):
                                     return fn(self.uuid, with_output=with_output)
-                                log.ODM_WARNING("LRE: import_path task %s has no get_task_info method on node %s" %
+                                log.ODM_WARNING("LRE: import_path task %s has no get_task_info method on node %s; falling back to /task/<uuid>/info" %
                                                 (self.uuid, type(self.node).__name__))
+                                # Fallback to generic Node.get (pyodm.Node)
+                                fn_get = getattr(self.node, "get", None)
+                                if callable(fn_get):
+                                    query = {}
+                                    if with_output is not None:
+                                        query["with_output"] = with_output
+                                    info_json = fn_get(f"/task/{self.uuid}/info", query)
+                                    return TaskInfo(info_json)
                             except Exception as info_exc:  # noqa: BLE001 - diagnostic logging
                                 log.ODM_WARNING("LRE: import_path task %s get_task_info failed: %s" % (self.uuid, str(info_exc)))
                                 return None
@@ -831,8 +839,8 @@ class Task:
         # Check status
         info = task.info()
         if info is None:
-            log.ODM_WARNING("LRE: task.info() returned None for %s (%s); will proceed to status check and likely fail"
-                            % (self, getattr(task, "uuid", "unknown")))
+            raise Exception("LRE: task.info() returned None for %s (%s)" %
+                            (self, getattr(task, "uuid", "unknown")))
         if info.status in [TaskStatus.RUNNING, TaskStatus.COMPLETED]:
             def monitor():
                 class nonloc:
