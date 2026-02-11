@@ -477,7 +477,7 @@ class Task:
         except Exception as e:
             done(e)
 
-    def execute_remote_task(self, done, seed_files = [], seed_touch_files = [], outputs = [], ):
+    def execute_remote_task(self, done, seed_files = [], seed_touch_files = [], outputs = [], name_override = None):
         """
         Run a task by creating a seed file with all files in seed_files, optionally
         creating empty files (for flag checks) specified in seed_touch_files
@@ -666,13 +666,14 @@ class Task:
 
         if use_import_path:
             try:
+                task_name = name_override or str(self)
                 # Prefer native pyodm helper when available
                 if hasattr(self.node, "create_task_from_path"):
                     imp_path = import_path_override or self.project_path
                     log.ODM_INFO("LRE: Attempting import_path submission for %s via %s" % (self, imp_path))
                     task = self.node.create_task_from_path(imp_path,
                             get_submodel_args_dict(config.config()),
-                            name=str(self))
+                            name=task_name)
                 else:
                     # Fallback: manually POST import_path to the node
                     host = getattr(self.node, "host", None) or getattr(self.node, "hostname", None)
@@ -692,7 +693,7 @@ class Task:
 
                     imp_path = import_path_override or self.project_path
                     payload = {
-                        "name": str(self),
+                        "name": task_name,
                         "import_path": imp_path,
                         "options": json.dumps(options_array),
                         "skipPostProcessing": True,
@@ -813,8 +814,10 @@ class Task:
                 except Exception as diag_err:
                     log.ODM_WARNING("LRE: Unable to log seed zip diagnostics for %s at %s: %s" % (self, seed_file, str(diag_err)))
                 try:
+                    task_name = name_override or str(self)
                     task = self.node.create_task(images,
                             get_submodel_args_dict(config.config()),
+                            name=task_name,
                             progress_callback=print_progress,
                             skip_post_processing=True,
                             outputs=outputs)
@@ -1069,6 +1072,7 @@ class ReconstructionTask(Task):
     def process_remote(self, done):
         octx = OSFMContext(self.path("opensfm"))
         if not octx.is_feature_matching_done() or not octx.is_reconstruction_done() or self.params['rerun']:
+            submodel_name = octx.name()
             self.execute_remote_task(done, seed_files=["opensfm/exif", 
                                                 "opensfm/camera_models.json",
                                                 "opensfm/reference_lla.json"],
@@ -1076,7 +1080,8 @@ class ReconstructionTask(Task):
                                     outputs=["opensfm/matches", "opensfm/features", 
                                             "opensfm/reconstruction.json",
                                             "opensfm/tracks.csv",
-                                            "cameras.json"])
+                                            "cameras.json"],
+                                    name_override=f"{submodel_name}_recon")
         else:
             log.ODM_INFO("Already processed feature matching and reconstruction for %s" % octx.name())
             done()
@@ -1132,7 +1137,8 @@ class ToolchainTask(Task):
                                         "odm_orthophoto/odm_orthophoto_feathered.tif",
                                         "odm_dem",
                                         "odm_report",
-                                        "odm_georeferencing"])
+                                        "odm_georeferencing"],
+                                name_override=f"{submodel_name}_toolchain")
         else:
             log.ODM_INFO("Already processed toolchain for %s" % submodel_name)
             handle_result()
