@@ -343,6 +343,57 @@ class Task:
         with open(file, 'w') as fout:
             fout.write("Done!\n")
 
+    def _log_expected_outputs_state(self, outputs, stage_label):
+        if not outputs:
+            return
+
+        existing = []
+        missing = []
+        for rel in outputs:
+            abs_path = self.path(rel)
+            if os.path.exists(abs_path):
+                existing.append(rel)
+            else:
+                missing.append(rel)
+
+        log.ODM_INFO(
+            "LRE: Output check for %s during %s: existing=%s missing=%s project_path=%s"
+            % (
+                self,
+                stage_label,
+                existing if existing else [],
+                missing if missing else [],
+                self.project_path,
+            )
+        )
+
+    def _log_toolchain_merge_inputs(self, stage_label):
+        cut_rel = os.path.join("odm_orthophoto", "odm_orthophoto_cut.tif")
+        feathered_rel = os.path.join("odm_orthophoto", "odm_orthophoto_feathered.tif")
+        cut_abs = self.path(cut_rel)
+        feathered_abs = self.path(feathered_rel)
+
+        def describe(pathname):
+            if not os.path.exists(pathname):
+                return "missing"
+            try:
+                size = os.path.getsize(pathname)
+            except OSError:
+                size = "unknown"
+            return "present size=%s" % size
+
+        log.ODM_INFO(
+            "LRE: Toolchain merge-input check for %s during %s: cut=(%s path=%s) feathered=(%s path=%s)"
+            % (
+                self,
+                stage_label,
+                describe(cut_abs),
+                cut_abs,
+                describe(feathered_abs),
+                feathered_abs,
+            )
+        )
+
     def create_seed_payload(self, paths, touch_files=[], max_attempts=2):
         """
         Build a seed.zip with required inputs. Validate the archive after writing
@@ -956,6 +1007,9 @@ class Task:
 
                             raise
                     log.ODM_INFO("LRE: Downloading assets for %s" % self)
+                    self._log_expected_outputs_state(outputs, "before download_assets")
+                    if isinstance(self, ToolchainTask):
+                        self._log_toolchain_merge_inputs("before download_assets")
                     task.download_assets(self.project_path, progress_callback=print_progress)
                     log.ODM_INFO("LRE: Downloaded and extracted assets for %s" % self)
                     # Some import_path tasks extract into /var/www/data/<task_uuid> instead of the submodel path.
@@ -984,6 +1038,19 @@ class Task:
                                             shutil.copy2(src, dst)
                     except Exception as fix_exc:  # noqa: BLE001 - best effort fix
                         log.ODM_WARNING("LRE: Failed to relocate import_path outputs for %s: %s" % (self, str(fix_exc)))
+                    self._log_expected_outputs_state(outputs, "after restore")
+                    if outputs:
+                        missing_after_restore = []
+                        for rel in outputs:
+                            if not os.path.exists(self.path(rel)):
+                                missing_after_restore.append(rel)
+                        if missing_after_restore:
+                            log.ODM_WARNING(
+                                "LRE: Outputs still missing after restore for %s (%s): %s"
+                                % (self, task.uuid, ", ".join(missing_after_restore))
+                            )
+                    if isinstance(self, ToolchainTask):
+                        self._log_toolchain_merge_inputs("after restore")
                     done()
                 except exceptions.TaskFailedError as e:
                     # Try to get output
