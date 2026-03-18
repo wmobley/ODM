@@ -2,6 +2,7 @@
 OpenSfM related utils
 """
 
+import time
 import os, shutil, sys, json, argparse, copy
 import yaml
 import numpy as np
