@@ -31,8 +31,31 @@ class OSFMContext:
     
     def run(self, command):
         osfm_bin = os.path.join(context.opensfm_path, 'bin', 'opensfm')
-        system.run('"%s" %s "%s"' %
-                    (osfm_bin, command, self.opensfm_project_path))
+        cmd = '"%s" %s "%s"' % (osfm_bin, command, self.opensfm_project_path)
+
+        log.ODM_INFO("LRE: OpenSfM command START: %s" % cmd)
+        start_time = time.time()
+
+        try:
+            system.run(cmd)
+        except Exception as e:
+            elapsed = time.time() - start_time
+            log.ODM_ERROR("LRE: OpenSfM command FAILED: %s (elapsed=%.1fs): %s" % (cmd, elapsed, str(e)))
+            # Attempt to emit additional OpenSfM logs if available
+            try:
+                log_dir = os.path.join(self.opensfm_project_path, 'logs')
+                if os.path.isdir(log_dir):
+                    tail_files = sorted([f for f in os.listdir(log_dir) if os.path.isfile(os.path.join(log_dir, f))])[-3:]
+                    for tf in tail_files:
+                        with open(os.path.join(log_dir, tf), 'r') as fh:
+                            lines = fh.readlines()[-20:]
+                        log.ODM_INFO("LRE: OpenSfM log snippet %s:\n%s" % (tf, ''.join(lines)))
+            except Exception as log_exc:
+                log.ODM_WARNING("LRE: Could not read OpenSfM log files: %s" % str(log_exc))
+            raise
+        else:
+            elapsed = time.time() - start_time
+            log.ODM_INFO("LRE: OpenSfM command DONE: %s (elapsed=%.1fs)" % (cmd, elapsed))
 
     def is_reconstruction_done(self):
         tracks_file = os.path.join(self.opensfm_project_path, 'tracks.csv')
