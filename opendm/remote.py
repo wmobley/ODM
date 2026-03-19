@@ -367,6 +367,35 @@ class Task:
             )
         )
 
+    def _snapshot_outputs(self, root_path, outputs):
+        snapshot = []
+        if not outputs:
+            return snapshot
+
+        for rel in outputs:
+            abs_path = os.path.join(root_path, rel)
+            entry = {
+                "relative_path": rel,
+                "absolute_path": abs_path,
+                "exists": os.path.exists(abs_path),
+                "type": "missing",
+                "size": None,
+            }
+            if os.path.isfile(abs_path):
+                entry["type"] = "file"
+                try:
+                    entry["size"] = os.path.getsize(abs_path)
+                except OSError:
+                    entry["size"] = None
+            elif os.path.isdir(abs_path):
+                entry["type"] = "dir"
+                try:
+                    entry["size"] = len(os.listdir(abs_path))
+                except OSError:
+                    entry["size"] = None
+            snapshot.append(entry)
+        return snapshot
+
     def _log_toolchain_merge_inputs(self, stage_label):
         cut_rel = os.path.join("odm_orthophoto", "odm_orthophoto_cut.tif")
         feathered_rel = os.path.join("odm_orthophoto", "odm_orthophoto_feathered.tif")
@@ -1012,8 +1041,16 @@ class Task:
                         self._log_toolchain_merge_inputs("before download_assets")
                     task.download_assets(self.project_path, progress_callback=print_progress)
                     log.ODM_INFO("LRE: Downloaded and extracted assets for %s" % self)
+                    direct_restore_snapshot = self._snapshot_outputs(self.project_path, outputs)
+                    direct_restore_present = [entry["relative_path"] for entry in direct_restore_snapshot if entry["exists"]]
+                    direct_restore_missing = [entry["relative_path"] for entry in direct_restore_snapshot if not entry["exists"]]
+                    log.ODM_INFO(
+                        "LRE: Direct restore snapshot for %s (%s): project_path=%s present=%s missing=%s"
+                        % (self, task.uuid, self.project_path, direct_restore_present, direct_restore_missing)
+                    )
                     # Some import_path tasks extract into /var/www/data/<task_uuid> instead of the submodel path.
                     # If key outputs are missing in the submodel path, try to copy from the task uuid folder.
+                    fallback_copy_used = False
                     try:
                         if outputs:
                             missing = []
@@ -1025,8 +1062,14 @@ class Task:
                                 data_root = os.path.dirname(os.path.dirname(os.path.dirname(self.project_path)))
                                 alt_root = os.path.join(data_root, task.uuid)
                                 if os.path.isdir(alt_root):
+                                    fallback_copy_used = True
+                                    alt_snapshot = self._snapshot_outputs(alt_root, outputs)
                                     log.ODM_WARNING("LRE: Missing outputs under %s; copying from %s (missing=%s)" %
                                                     (self.project_path, alt_root, ", ".join(missing)))
+                                    log.ODM_INFO(
+                                        "LRE: Fallback copy inventory for %s (%s): alt_root=%s snapshot=%s"
+                                        % (self, task.uuid, alt_root, json.dumps(alt_snapshot, sort_keys=True))
+                                    )
                                     for rel in outputs:
                                         src = os.path.join(alt_root, rel)
                                         dst = os.path.join(self.project_path, rel)
@@ -1039,15 +1082,30 @@ class Task:
                     except Exception as fix_exc:  # noqa: BLE001 - best effort fix
                         log.ODM_WARNING("LRE: Failed to relocate import_path outputs for %s: %s" % (self, str(fix_exc)))
                     self._log_expected_outputs_state(outputs, "after restore")
+                    log.ODM_INFO(
+                        "LRE: Restore path summary for %s (%s): project_path=%s direct_restore_populated=%s fallback_copy_used=%s"
+                        % (
+                            self,
+                            task.uuid,
+                            self.project_path,
+                            bool(direct_restore_present),
+                            fallback_copy_used,
+                        )
+                    )
                     if outputs:
                         missing_after_restore = []
                         for rel in outputs:
                             if not os.path.exists(self.path(rel)):
                                 missing_after_restore.append(rel)
                         if missing_after_restore:
+                            post_restore_snapshot = self._snapshot_outputs(self.project_path, outputs)
                             log.ODM_WARNING(
                                 "LRE: Outputs still missing after restore for %s (%s): %s"
                                 % (self, task.uuid, ", ".join(missing_after_restore))
+                            )
+                            log.ODM_INFO(
+                                "LRE: Post-restore snapshot for %s (%s): %s"
+                                % (self, task.uuid, json.dumps(post_restore_snapshot, sort_keys=True))
                             )
                     if isinstance(self, ToolchainTask):
                         self._log_toolchain_merge_inputs("after restore")
