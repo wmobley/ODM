@@ -9,6 +9,17 @@ from opendm import point_cloud
 from scipy import signal
 import numpy as np
 
+
+def write_stage_marker(marker_dir, stage_name, command):
+    marker_path = os.path.join(os.path.abspath(marker_dir), "stage_marker.txt")
+    with open(marker_path, 'w') as f:
+        f.write("timestamp=%s\n" % system.now_raw().isoformat())
+        f.write("stage=%s\n" % stage_name)
+        f.write("command=%s\n" % command)
+
+    log.ODM_INFO("Stage marker: %s (%s)" % (stage_name, marker_path))
+
+
 def create_25dmesh(inPointCloud, outMesh, radius_steps=["0.05"], dsm_resolution=0.05, depth=8, samples=1, maxVertexCount=100000, available_cores=None, method='gridded', smooth_dsm=True, max_tiles=None):
     # Create DSM from point cloud
 
@@ -96,13 +107,17 @@ def dem_to_mesh_gridded(inGeotiff, outMesh, maxVertexCount, maxConcurrency=1):
                 'maxVertexCount': maxVertexCount,
                 'maxConcurrency': maxConcurrency
             }
-            system.run('"{bin}" -inputFile "{infile}" '
+            dem2mesh_cmd = (
+                '"{bin}" -inputFile "{infile}" '
                 '-outputFile "{outfile}" '
                 '-maxTileLength 2000 '
                 '-maxVertexCount {maxVertexCount} '
                 '-maxConcurrency {maxConcurrency} '
                 '-edgeSwapThreshold 0.15 '
-                '-verbose '.format(**kwargs))
+                '-verbose '.format(**kwargs)
+            )
+            write_stage_marker(mesh_path, 'dem2mesh', dem2mesh_cmd)
+            system.run(dem2mesh_cmd)
             break
         except Exception as e:
             maxConcurrency = math.floor(maxConcurrency / 2)

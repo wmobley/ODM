@@ -65,6 +65,18 @@ def rectify(lasFile, reclassify_threshold=5, min_area=750, min_points=500):
 
 error = None
 
+
+def write_stage_marker(marker_dir, stage_name, command):
+    marker_path = os.path.join(os.path.abspath(marker_dir), "stage_marker.txt")
+    timestamp = datetime.now().isoformat()
+
+    with open(marker_path, 'w') as f:
+        f.write("timestamp=%s\n" % timestamp)
+        f.write("stage=%s\n" % stage_name)
+        f.write("command=%s\n" % command)
+
+    log.ODM_INFO("Stage marker: %s (%s)" % (stage_name, marker_path))
+
 def create_dem(input_point_cloud, dem_type, output_type='max', radiuses=['0.56'], gapfill=True,
                 outdir='', resolution=0.1, max_workers=1, max_tile_size=4096,
                 decimation=None, with_euclidean_map=False,
@@ -83,16 +95,20 @@ def create_dem(input_point_cloud, dem_type, output_type='max', radiuses=['0.56']
         'classification': 2 if dem_type == 'dtm' else -1,
         'tileSize': max_tile_size
     }
-    system.run('renderdem "{input}" '
-                '--outdir "{outdir}" '
-                '--output-type {outputType} '
-                '--radiuses {radiuses} '
-                '--resolution {resolution} '
-                '--max-tiles {maxTiles} '
-                '--decimation {decimation} '
-                '--classification {classification} '
-                '--tile-size {tileSize} '
-                '--force '.format(**kwargs), env_vars={'OMP_NUM_THREADS': max_workers})
+    renderdem_cmd = (
+        'renderdem "{input}" '
+        '--outdir "{outdir}" '
+        '--output-type {outputType} '
+        '--radiuses {radiuses} '
+        '--resolution {resolution} '
+        '--max-tiles {maxTiles} '
+        '--decimation {decimation} '
+        '--classification {classification} '
+        '--tile-size {tileSize} '
+        '--force '.format(**kwargs)
+    )
+    write_stage_marker(outdir, 'renderdem', renderdem_cmd)
+    system.run(renderdem_cmd, env_vars={'OMP_NUM_THREADS': max_workers})
 
     output_file = "%s.tif" % dem_type
     output_path = os.path.abspath(os.path.join(outdir, output_file))
@@ -120,7 +136,9 @@ def create_dem(input_point_cloud, dem_type, output_type='max', radiuses=['0.56']
         for t in tiles:
             f.write(t['filename'] + '\n')
 
-    run('gdalbuildvrt -input_file_list "%s" "%s" ' % (tiles_file_list, tiles_vrt_path))
+    gdalbuildvrt_tiles_cmd = 'gdalbuildvrt -input_file_list "%s" "%s" ' % (tiles_file_list, tiles_vrt_path)
+    write_stage_marker(outdir, 'gdalbuildvrt_tiles', gdalbuildvrt_tiles_cmd)
+    run(gdalbuildvrt_tiles_cmd)
 
     merged_vrt_path = os.path.abspath(os.path.join(outdir, "merged.vrt"))
     geotiff_small_path = os.path.abspath(os.path.join(outdir, 'tiles.small.tif'))
@@ -143,13 +161,17 @@ def create_dem(input_point_cloud, dem_type, output_type='max', radiuses=['0.56']
         # behaves strangely when reading data directly from a .VRT
         # so we need to convert to GeoTIFF first.
         # Scale to 10% size
-        run('gdal_translate '
-                '-co NUM_THREADS={threads} '
-                '-co BIGTIFF=IF_SAFER '
-                '-co COMPRESS=DEFLATE '
-                '--config GDAL_CACHEMAX {max_memory}% '
-                '-outsize 10% 0 '
-                '"{tiles_vrt}" "{geotiff_small}"'.format(**kwargs))
+        gdal_translate_small_cmd = (
+            'gdal_translate '
+            '-co NUM_THREADS={threads} '
+            '-co BIGTIFF=IF_SAFER '
+            '-co COMPRESS=DEFLATE '
+            '--config GDAL_CACHEMAX {max_memory}% '
+            '-outsize 10% 0 '
+            '"{tiles_vrt}" "{geotiff_small}"'.format(**kwargs)
+        )
+        write_stage_marker(outdir, 'gdal_translate_small', gdal_translate_small_cmd)
+        run(gdal_translate_small_cmd)
 
         # Fill scaled
         gdal_fillnodata(['.', 
@@ -162,22 +184,32 @@ def create_dem(input_point_cloud, dem_type, output_type='max', radiuses=['0.56']
                         kwargs['geotiff_small'], kwargs['geotiff_small_filled']])
         
         # Merge filled scaled DEM with unfilled DEM using bilinear interpolation
-        run('gdalbuildvrt -resolution highest -r bilinear "%s" "%s" "%s"' % (merged_vrt_path, geotiff_small_filled_path, tiles_vrt_path))
-        run('gdal_translate '
+        gdalbuildvrt_merge_cmd = 'gdalbuildvrt -resolution highest -r bilinear "%s" "%s" "%s"' % (merged_vrt_path, geotiff_small_filled_path, tiles_vrt_path)
+        write_stage_marker(outdir, 'gdalbuildvrt_merge', gdalbuildvrt_merge_cmd)
+        run(gdalbuildvrt_merge_cmd)
+        gdal_translate_merge_cmd = (
+            'gdal_translate '
             '-co NUM_THREADS={threads} '
             '-co TILED=YES '
             '-co BIGTIFF=IF_SAFER '
             '-co COMPRESS=DEFLATE '
             '--config GDAL_CACHEMAX {max_memory}% '
-            '"{merged_vrt}" "{geotiff}"'.format(**kwargs))
+            '"{merged_vrt}" "{geotiff}"'.format(**kwargs)
+        )
+        write_stage_marker(outdir, 'gdal_translate_merge', gdal_translate_merge_cmd)
+        run(gdal_translate_merge_cmd)
     else:
-        run('gdal_translate '
-                '-co NUM_THREADS={threads} '
-                '-co TILED=YES '
-                '-co BIGTIFF=IF_SAFER '
-                '-co COMPRESS=DEFLATE '
-                '--config GDAL_CACHEMAX {max_memory}% '
-                '"{tiles_vrt}" "{geotiff}"'.format(**kwargs))
+        gdal_translate_tiles_cmd = (
+            'gdal_translate '
+            '-co NUM_THREADS={threads} '
+            '-co TILED=YES '
+            '-co BIGTIFF=IF_SAFER '
+            '-co COMPRESS=DEFLATE '
+            '--config GDAL_CACHEMAX {max_memory}% '
+            '"{tiles_vrt}" "{geotiff}"'.format(**kwargs)
+        )
+        write_stage_marker(outdir, 'gdal_translate_tiles', gdal_translate_tiles_cmd)
+        run(gdal_translate_tiles_cmd)
 
     if apply_smoothing:
         median_smoothing(geotiff_path, output_path, num_workers=max_workers)

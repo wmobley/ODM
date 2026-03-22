@@ -9,10 +9,22 @@ from opendm import gsd
 from opendm import types
 from opendm.dem import commands
 
+MAX_MESHING_CONCURRENCY = 8
+
+
 class ODMeshingStage(types.ODM_Stage):
     def process(self, args, outputs):
         tree = outputs['tree']
         reconstruction = outputs['reconstruction']
+        requested_concurrency = max(1, args.max_concurrency)
+        meshing_concurrency = min(requested_concurrency, MAX_MESHING_CONCURRENCY)
+
+        if meshing_concurrency != requested_concurrency:
+            log.ODM_INFO(
+                "Capping meshing/DEM concurrency from %s to %s" % (
+                    requested_concurrency, meshing_concurrency
+                )
+            )
 
         # define paths and create working directories
         system.mkdir_p(tree.odm_meshing)
@@ -28,7 +40,7 @@ class ODMeshingStage(types.ODM_Stage):
                 samples=self.params.get('samples'),
                 maxVertexCount=self.params.get('max_vertex'),
                 pointWeight=self.params.get('point_weight'),
-                threads=max(1, self.params.get('max_concurrency') - 1)), # poissonrecon can get stuck on some machines if --threads == all cores
+                threads=max(1, meshing_concurrency - 1)), # poissonrecon can get stuck on some machines if --threads == all cores
           else:
               log.ODM_WARNING('Found a valid ODM Mesh file in: %s' %
                               tree.odm_mesh)
@@ -57,11 +69,10 @@ class ODMeshingStage(types.ODM_Stage):
                     depth=self.params.get('oct_tree'),
                     maxVertexCount=self.params.get('max_vertex'),
                     samples=self.params.get('samples'),
-                    available_cores=args.max_concurrency,
+                    available_cores=meshing_concurrency,
                     method='poisson' if args.fast_orthophoto else 'gridded',
                     smooth_dsm=True,
                     max_tiles=None if reconstruction.has_geotagged_photos() else math.ceil(len(reconstruction.photos) / 2))
           else:
               log.ODM_WARNING('Found a valid ODM 2.5D Mesh file in: %s' %
                               tree.odm_25dmesh)
-
