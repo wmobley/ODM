@@ -367,6 +367,77 @@ class Task:
         )
         return canonical
 
+    def _runtime_data_root(self, project_root=None):
+        root = os.path.abspath(project_root or self.project_path)
+        parts = root.split(os.sep)
+        try:
+            data_idx = parts.index("data")
+        except ValueError:
+            return None
+
+        if data_idx == 0 or parts[data_idx - 1] != "runtime":
+            return None
+
+        return os.sep.join(parts[:data_idx + 1]) or os.sep
+
+    def _candidate_task_roots(self, project_root, task_uuid):
+        data_root = self._runtime_data_root(project_root)
+        if not data_root or not task_uuid:
+            return []
+
+        candidates = []
+        seen = set()
+
+        def add_candidate(path):
+            normalized = os.path.abspath(path)
+            if normalized not in seen:
+                seen.add(normalized)
+                candidates.append(normalized)
+
+        add_candidate(os.path.join(data_root, task_uuid))
+
+        nodeodm_root = os.path.dirname(os.path.dirname(data_root))
+        job_root = os.path.dirname(nodeodm_root)
+
+        try:
+            for sibling_root in sorted(glob.glob(os.path.join(job_root, "nodeodm_workdir*", "runtime", "data"))):
+                add_candidate(os.path.join(sibling_root, task_uuid))
+        except Exception as e:
+            log.ODM_WARNING(
+                "LRE: Failed to enumerate sibling runtime/data roots for %s (%s): %s"
+                % (self, task_uuid, str(e))
+            )
+
+        return candidates
+
+    def _find_fallback_source_root(self, restore_root, task_uuid, required_outputs):
+        candidates = self._candidate_task_roots(restore_root, task_uuid)
+        inspected = []
+
+        best_existing = None
+        best_missing = None
+
+        for candidate in candidates:
+            exists = os.path.isdir(candidate)
+            missing = self._missing_outputs(candidate, required_outputs) if exists else list(required_outputs or [])
+            inspected.append({
+                "path": candidate,
+                "exists": exists,
+                "missing_required": missing,
+            })
+
+            if exists and not missing:
+                return candidate, inspected
+
+            if exists and best_existing is None:
+                best_existing = candidate
+                best_missing = missing
+
+        if best_existing is not None:
+            return best_existing, inspected
+
+        return None, inspected
+
     def touch(self, file):
         with open(file, 'w') as fout:
             fout.write("Done!\n")
@@ -1132,12 +1203,20 @@ class Task:
                     try:
                         if outputs:
                             missing = self._missing_outputs(restore_root, required_outputs)
-                            data_root = os.path.dirname(os.path.dirname(os.path.dirname(restore_root)))
-                            alt_root = os.path.join(data_root, task.uuid)
-                            alt_root_exists = os.path.isdir(alt_root)
+                            alt_root, alt_root_candidates = self._find_fallback_source_root(
+                                restore_root, task.uuid, required_outputs
+                            )
+                            alt_root_exists = alt_root is not None and os.path.isdir(alt_root)
                             log.ODM_INFO(
-                                "LRE: Fallback source check for %s (%s): alt_root=%s exists=%s missing_required=%s"
-                                % (self, task.uuid, alt_root, alt_root_exists, missing)
+                                "LRE: Fallback source check for %s (%s): selected_alt_root=%s exists=%s missing_required=%s candidates=%s"
+                                % (
+                                    self,
+                                    task.uuid,
+                                    alt_root,
+                                    alt_root_exists,
+                                    missing,
+                                    json.dumps(alt_root_candidates, sort_keys=True),
+                                )
                             )
                             if missing and alt_root_exists:
                                 fallback_copy_used = True
