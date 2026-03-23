@@ -380,9 +380,97 @@ class Task:
 
         return os.sep.join(parts[:data_idx + 1]) or os.sep
 
+    def _discover_runtime_data_root(self, project_root=None):
+        root = os.path.abspath(project_root or self.project_path)
+
+        direct_root = self._runtime_data_root(root)
+        if direct_root:
+            log.ODM_INFO(
+                "LRE: Runtime/data root for %s resolved directly from project root %s to %s"
+                % (self, root, direct_root)
+            )
+            return direct_root
+
+        try:
+            rel = os.path.relpath(root, "/var/www/data")
+        except Exception:
+            rel = None
+
+        if not rel or rel.startswith(".."):
+            log.ODM_INFO(
+                "LRE: Runtime/data root discovery skipped for %s because %s is not under /var/www/data"
+                % (self, root)
+            )
+            return None
+
+        project_uuid = rel.split(os.sep)[0]
+        if not project_uuid or project_uuid == ".":
+            log.ODM_WARNING(
+                "LRE: Runtime/data root discovery could not derive project UUID for %s from %s"
+                % (self, root)
+            )
+            return None
+
+        import_path_base = os.environ.get("ODM_IMPORT_PATH_BASE") or os.environ.get("_tapisJobWorkingDir")
+        candidate_bases = []
+        seen = set()
+
+        def add_candidate(path):
+            if not path:
+                return
+            normalized = os.path.abspath(path)
+            if normalized not in seen:
+                seen.add(normalized)
+                candidate_bases.append(normalized)
+
+        add_candidate(import_path_base)
+
+        job_dir = os.environ.get("_tapisJobWorkingDir")
+        if job_dir:
+            try:
+                for match in sorted(glob.glob(os.path.join(job_dir, "nodeodm_workdir*", "runtime", "data", project_uuid))):
+                    add_candidate(os.path.dirname(match))
+            except Exception as e:
+                log.ODM_WARNING(
+                    "LRE: Failed autodetecting runtime/data root from _tapisJobWorkingDir for %s: %s"
+                    % (self, str(e))
+                )
+
+        log.ODM_INFO(
+            "LRE: Runtime/data root discovery for %s: canonical_root=%s rel=%s project_uuid=%s import_path_base=%s job_dir=%s candidate_bases=%s"
+            % (
+                self,
+                root,
+                rel,
+                project_uuid,
+                import_path_base,
+                job_dir,
+                json.dumps(candidate_bases, sort_keys=True),
+            )
+        )
+
+        for candidate_base in candidate_bases:
+            candidate_task_root = os.path.join(candidate_base, project_uuid)
+            if os.path.isdir(candidate_task_root):
+                log.ODM_INFO(
+                    "LRE: Resolved runtime/data root for %s from canonical path %s to %s"
+                    % (self, root, candidate_base)
+                )
+                return candidate_base
+
+        log.ODM_WARNING(
+            "LRE: Could not resolve runtime/data root for %s from canonical path %s (project_uuid=%s)"
+            % (self, root, project_uuid)
+        )
+        return None
+
     def _candidate_task_roots(self, project_root, task_uuid):
-        data_root = self._runtime_data_root(project_root)
+        data_root = self._discover_runtime_data_root(project_root)
         if not data_root or not task_uuid:
+            log.ODM_INFO(
+                "LRE: Candidate task root discovery for %s skipped (project_root=%s task_uuid=%s data_root=%s)"
+                % (self, os.path.abspath(project_root or self.project_path), task_uuid, data_root)
+            )
             return []
 
         candidates = []
@@ -408,6 +496,18 @@ class Task:
                 % (self, task_uuid, str(e))
             )
 
+        log.ODM_INFO(
+            "LRE: Candidate task roots for %s (%s): project_root=%s data_root=%s nodeodm_root=%s job_root=%s candidates=%s"
+            % (
+                self,
+                task_uuid,
+                os.path.abspath(project_root or self.project_path),
+                data_root,
+                nodeodm_root,
+                job_root,
+                json.dumps(candidates, sort_keys=True),
+            )
+        )
         return candidates
 
     def _find_fallback_source_root(self, restore_root, task_uuid, required_outputs):
