@@ -1510,11 +1510,21 @@ class ToolchainTask(Task):
             present_optional_dirs = [d for d in optional_osfm_dirs if os.path.exists(self.path(d))]
             missing_optional_markers = [f"{d}/empty" for d in optional_osfm_dirs if not os.path.exists(self.path(d))]
 
+            # Preserve submodel identity for remote toolchain runs so ODM generates
+            # cut/feather rasters required by split-merge orthophoto assembly.
+            submodel_marker = "opensfm/split_merge_stop_at_reconstruction.txt"
+            if os.path.exists(self.path(submodel_marker)):
+                seed_submodel_files = [submodel_marker]
+                seed_submodel_touch_files = []
+            else:
+                seed_submodel_files = []
+                seed_submodel_touch_files = [submodel_marker]
+
             self.execute_remote_task(handle_result, seed_files=["opensfm/camera_models.json",
                                                 "opensfm/reference_lla.json",
                                                 "opensfm/reconstruction.json",
-                                                "opensfm/tracks.csv"] + present_optional_dirs,
-                                seed_touch_files=missing_optional_markers,
+                                                "opensfm/tracks.csv"] + present_optional_dirs + seed_submodel_files,
+                                seed_touch_files=missing_optional_markers + seed_submodel_touch_files,
                                 outputs=["odm_orthophoto/cutline.gpkg",
                                         "odm_orthophoto/odm_orthophoto_cut.tif",
                                         "odm_orthophoto/odm_orthophoto_feathered.tif",
