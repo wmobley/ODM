@@ -921,12 +921,15 @@ class Task:
                     pass
                 return False
 
-            def flatten_import_path(base_path):
+            def flatten_import_path(base_path, extra_seed_files=None, extra_touch_files=None):
                 """
                 NodeODM import_path expects the images directory directly at the import root.
                 Submodels store images under <project>/images, which leads to images/images.
-                Build a shallow view with images at the root (symlinks) and carry over support files.
+                Build a shallow view with images at the root (symlinks) and carry over support files
+                plus any seeded artifacts required by remote reconstruction/toolchain runs.
                 """
+                extra_seed_files = extra_seed_files or []
+                extra_touch_files = extra_touch_files or []
                 images_dir = os.path.join(base_path, "images")
                 if not os.path.isdir(images_dir):
                     return base_path
@@ -967,6 +970,32 @@ class Task:
                             except Exception as e:
                                 log.ODM_WARNING("LRE: Failed linking support file %s -> %s: %s" % (src_sf, dst_sf, str(e)))
 
+                    for rel_path in extra_seed_files:
+                        src_path = os.path.join(base_path, rel_path)
+                        dst_path = os.path.join(flat_dir, rel_path)
+                        dst_parent = os.path.dirname(dst_path)
+                        if dst_parent:
+                            os.makedirs(dst_parent, exist_ok=True)
+                        if not os.path.exists(src_path):
+                            log.ODM_WARNING("LRE: Seed file %s missing under import_path root %s" % (rel_path, base_path))
+                            continue
+                        try:
+                            os.symlink(src_path, dst_path)
+                        except FileExistsError:
+                            pass
+                        except Exception as e:
+                            log.ODM_WARNING("LRE: Failed linking seed file %s -> %s: %s" % (src_path, dst_path, str(e)))
+
+                    for rel_path in extra_touch_files:
+                        dst_path = os.path.join(flat_dir, rel_path)
+                        dst_parent = os.path.dirname(dst_path)
+                        if dst_parent:
+                            os.makedirs(dst_parent, exist_ok=True)
+                        try:
+                            open(dst_path, "a").close()
+                        except Exception as e:
+                            log.ODM_WARNING("LRE: Failed creating touched seed file %s: %s" % (dst_path, str(e)))
+
                     log.ODM_INFO("LRE: Using flattened import_path view for submodel images at %s" % flat_dir)
                     return flat_dir
                 except Exception as e:
@@ -975,7 +1004,11 @@ class Task:
 
             # Flatten submodel layout so NodeODM sees images at the import root (avoids images/images).
             target_import_path = import_path_override or self.project_path
-            import_path_override = flatten_import_path(target_import_path)
+            import_path_override = flatten_import_path(
+                target_import_path,
+                extra_seed_files=seed_files,
+                extra_touch_files=seed_touch_files,
+            )
 
             log_import_path_status(import_path_override)
 
