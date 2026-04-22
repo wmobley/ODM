@@ -12,6 +12,7 @@ project_path: '/' # Example: '/home/user/ODMProjects'
 #resize_to: 2048
 #start_with: 'resize'
 #end_with: 'odm_orthophoto'
+sm-cluster: 'https://clusterodm.tacc.utexas.edu'
 #rerun_all: False
 #zip_results: False
 #verbose: False

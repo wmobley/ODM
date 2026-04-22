@@ -957,7 +957,9 @@ def config(argv=None, parser=None):
         try:
             Node.from_url(args.sm_cluster).info()
         except exceptions.NodeConnectionError as e:
-            log.ODM_ERROR("Cluster node seems to be offline: %s"  % str(e))
-            sys.exit(1)
+            if getattr(args, 'sm_cluster_is_set', False):
+                log.ODM_ERROR("Cluster node seems to be offline: %s"  % str(e))
+                sys.exit(1)
+            log.ODM_WARNING("Default ClusterODM endpoint is offline or unreachable: %s" % str(e))
 
     return args
