@@ -5,7 +5,6 @@ from opendm.utils import double_quote
 from opendm import io
 from opendm import log
 from opendm import system
-from opendm import concurrency
 
 
 def build(input_point_cloud_files, output_path, max_concurrency=8, rerun=False):
@@ -53,14 +52,18 @@ def build_entwine(input_point_cloud_files, tmpdir, output_path, max_concurrency=
 
 def build_untwine(input_point_cloud_files, tmpdir, output_path, max_concurrency=8, rerun=False):
     kwargs = {
-        # 'threads': max_concurrency,
+        'threads': max_concurrency,
         'tmpdir': tmpdir,
         'files': "--files " + " ".join(map(double_quote, input_point_cloud_files)),
         'outputdir': output_path
     }
 
-    # Run untwine
-    system.run('untwine --temp_dir "{tmpdir}" {files} --output_dir "{outputdir}"'.format(**kwargs))
+    # Run untwine with explicit threads when supported. Fall back for older versions.
+    try:
+        system.run('untwine --temp_dir "{tmpdir}" --threads {threads} {files} --output_dir "{outputdir}"'.format(**kwargs))
+    except Exception as e:
+        log.ODM_WARNING("Cannot run untwine with explicit threads (%s), retrying without --threads..." % str(e))
+        system.run('untwine --temp_dir "{tmpdir}" {files} --output_dir "{outputdir}"'.format(**kwargs))
 
 def build_copc(input_point_cloud_files, output_file, convert_rgb_8_to_16=False):
     if len(input_point_cloud_files) == 0:
@@ -105,13 +108,18 @@ def build_copc(input_point_cloud_files, output_file, convert_rgb_8_to_16=False):
             input_point_cloud_files = converted
         
     kwargs = {
+        'threads': max(1, os.cpu_count() or 1),
         'tmpdir': tmpdir,
         'files': "--files " + " ".join(map(double_quote, input_point_cloud_files)),
         'output': output_file
     }
 
-    # Run untwine
-    system.run('untwine --temp_dir "{tmpdir}" {files} -o "{output}" --single_file'.format(**kwargs))
+    # Run untwine (single-file COPC). Try explicit threads first, then fallback.
+    try:
+        system.run('untwine --temp_dir "{tmpdir}" --threads {threads} {files} -o "{output}" --single_file'.format(**kwargs))
+    except Exception as e:
+        log.ODM_WARNING("Cannot run untwine COPC with explicit threads (%s), retrying without --threads..." % str(e))
+        system.run('untwine --temp_dir "{tmpdir}" {files} -o "{output}" --single_file'.format(**kwargs))
 
     for d in cleanup:
         if os.path.exists(d):
