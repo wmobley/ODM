@@ -1,5 +1,7 @@
 FROM nvidia/cuda:13.0.0-devel-ubuntu24.04 AS builder
 
+ARG ODM_BUILD_PROCESSES=4
+
 # Env variables
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONPATH="/code/SuperBuild/install/lib/python3.12/dist-packages:/code/SuperBuild/install/bin/opensfm" \
@@ -12,7 +14,7 @@ WORKDIR /code
 COPY . ./
 
 # Run the build
-RUN PORTABLE_INSTALL=YES GPU_INSTALL=YES bash configure.sh install
+RUN PORTABLE_INSTALL=YES GPU_INSTALL=YES bash configure.sh install ${ODM_BUILD_PROCESSES}
 
 # Run the tests
 ENV PATH="/code/venv/bin:$PATH"
