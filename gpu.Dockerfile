@@ -44,7 +44,10 @@ COPY --from=builder /code /code
 ENV PATH="/code/venv/bin:$PATH"
 
 RUN apt-get update -y \
- && apt-get install -y ffmpeg libtbb2
+ && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    libtbb12 \
+    libtbbmalloc2
 # Install shared libraries that we depend on via APT, but *not*
 # the -dev packages to save space!
 # Also run a smoke test on ODM and OpenSfM
