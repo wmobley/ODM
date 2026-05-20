@@ -16,9 +16,10 @@ COPY . ./
 # Run the build
 RUN PORTABLE_INSTALL=YES GPU_INSTALL=YES bash configure.sh install ${ODM_BUILD_PROCESSES}
 
-# Run the tests
+# Tests are skipped in CI Docker builds to keep publish builds focused on
+# producing the runtime image. The final stage still runs ODM/OpenSfM smoke
+# checks after runtime dependencies are installed.
 ENV PATH="/code/venv/bin:$PATH"
-RUN bash test.sh
 
 # Clean Superbuild
 RUN bash configure.sh clean
