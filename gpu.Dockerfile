@@ -1,4 +1,4 @@
-FROM nvidia/cuda:13.0.0-devel-ubuntu24.04 AS builder
+FROM nvidia/cuda:12.8.1-devel-ubuntu24.04 AS builder
 
 ARG ODM_BUILD_PROCESSES=4
 
