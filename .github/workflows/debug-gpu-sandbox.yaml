@@ -1,0 +1,47 @@
+name: Debug GPU Sandbox
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Docker target to build
+        required: true
+        default: odm-superbuild-pypopsift
+        type: choice
+        options:
+        - cuda-smoke
+        - odm-deps
+        - odm-superbuild-pypopsift
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 90
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      with:
+        buildkitd-config-inline: |
+          [worker.oci]
+            max-parallelism = 1
+    - name: Build selected debug target
+      uses: docker/build-push-action@v5
+      env:
+        BUILDKIT_PROGRESS: plain
+      with:
+        file: ./debug-pypopsift.Dockerfile
+        target: ${{ inputs.target }}
+        platforms: linux/amd64
+        build-args: |
+          ODM_BUILD_PROCESSES=2
+          GPUCACHEBUST=${{ github.run_id }}
+        push: false
+        cache-from: |
+          type=registry,ref=ghcr.io/${{ github.repository_owner }}/odm:pypopsift-debug-cache
+          type=registry,ref=ghcr.io/${{ github.repository_owner }}/odm:gpu-buildcache
+        cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/odm:pypopsift-debug-cache,mode=max

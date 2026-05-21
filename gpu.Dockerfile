@@ -1,17 +1,49 @@
 ARG CUDA_IMAGE=nvidia/cuda:12.8.1-devel-ubuntu24.04
 
-FROM ${CUDA_IMAGE} AS builder
+FROM ${CUDA_IMAGE} AS gpu-base
+
+# Env variables
+ENV DEBIAN_FRONTEND=noninteractive \
+    CUDA_HOME="/usr/local/cuda" \
+    CUDA_TOOLKIT_ROOT_DIR="/usr/local/cuda" \
+    PATH="/usr/local/cuda/bin:$PATH" \
+    PYTHONPATH="/code/SuperBuild/install/lib/python3.12/dist-packages:/code/SuperBuild/install/bin/opensfm" \
+    LD_LIBRARY_PATH="/usr/local/cuda/lib64:$LD_LIBRARY_PATH:/code/SuperBuild/install/lib"
+
+# Prepare directories
+WORKDIR /code
+
+FROM gpu-base AS pypopsift-debug
 
 ARG ODM_BUILD_PROCESSES=4
 ARG GPUCACHEBUST=0
 
-# Env variables
-ENV DEBIAN_FRONTEND=noninteractive \
-    PYTHONPATH="/code/SuperBuild/install/lib/python3.12/dist-packages:/code/SuperBuild/install/bin/opensfm" \
-    LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/code/SuperBuild/install/lib"
+# Keep dependency installation cacheable while iterating on SuperBuild/CMake.
+COPY configure.sh requirements.txt ./
+COPY snap ./snap
+RUN GPU_INSTALL=YES bash configure.sh installreqs
 
-# Prepare directories
-WORKDIR /code
+# Copy everything else after dependencies are installed.
+COPY . ./
+
+# Build only the CUDA SIFT extension. This target is for fast CI debugging;
+# it avoids building the full ODM SuperBuild before proving PyPopSift works.
+RUN echo "GPUCACHEBUST=${GPUCACHEBUST}" \
+  && export GPU_INSTALL=YES \
+  && cd /code/SuperBuild \
+  && mkdir -p build install/bin/opensfm/opensfm \
+  && cd build \
+  && cmake .. \
+  && cmake --build . --target pypopsift -- -j${ODM_BUILD_PROCESSES} \
+  && (find /code/SuperBuild/install -name 'pypopsift*.so' -print -quit | grep -q . \
+      || (echo "ERROR: pypopsift debug target did not install pypopsift*.so" \
+          && find /code/SuperBuild -iname '*popsift*' -print | sort \
+          && exit 1))
+
+FROM gpu-base AS builder
+
+ARG ODM_BUILD_PROCESSES=4
+ARG GPUCACHEBUST=0
 
 # Copy everything
 COPY . ./
@@ -19,7 +51,10 @@ COPY . ./
 # Run the build
 RUN echo "GPUCACHEBUST=${GPUCACHEBUST}" \
   && PORTABLE_INSTALL=YES GPU_INSTALL=YES bash configure.sh install ${ODM_BUILD_PROCESSES} \
-  && find /code/SuperBuild/install -name 'pypopsift*.so' -print -quit | grep -q .
+  && (find /code/SuperBuild/install -name 'pypopsift*.so' -print -quit | grep -q . \
+      || (echo "ERROR: pypopsift was not installed by the GPU build" \
+          && find /code/SuperBuild -iname '*popsift*' -print | sort \
+          && exit 1))
 
 # Tests are skipped in CI Docker builds to keep publish builds focused on
 # producing the runtime image. The final stage still runs ODM/OpenSfM smoke
@@ -33,15 +68,9 @@ RUN bash configure.sh clean
 
 ### Use a second image for the final asset to reduce the number and
 # size of the layers.
-FROM ${CUDA_IMAGE}
+FROM gpu-base
 
-# Env variables
-ENV DEBIAN_FRONTEND=noninteractive \
-    PYTHONPATH="/code/SuperBuild/install/lib/python3.12/dist-packages:/code/SuperBuild/install/bin/opensfm" \
-    LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/code/SuperBuild/install/lib" \
-    PDAL_DRIVER_PATH="/code/SuperBuild/install/bin"
-
-WORKDIR /code
+ENV PDAL_DRIVER_PATH="/code/SuperBuild/install/bin"
 
 # Copy everything we built from the builder
 COPY --from=builder /code /code
@@ -59,7 +88,10 @@ RUN apt-get update -y \
 RUN bash configure.sh installruntimedepsonly \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
-  && find /code/SuperBuild/install -name 'pypopsift*.so' -print -quit | grep -q . \
+  && (find /code/SuperBuild/install -name 'pypopsift*.so' -print -quit | grep -q . \
+      || (echo "ERROR: pypopsift is missing from the runtime image" \
+          && find /code/SuperBuild -iname '*popsift*' -print | sort \
+          && exit 1)) \
   && bash run.sh --help \
   && bash -c "eval $(python3 /code/opendm/context.py) && python3 -c 'from opensfm import io, pymap, pypopsift'"
 

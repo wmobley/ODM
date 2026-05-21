@@ -4,6 +4,7 @@ set(_SB_BINARY_DIR "${SB_BINARY_DIR}/pypopsift")
 find_package(CUDA 7.0)
 
 if(CUDA_FOUND)
+    message(STATUS "CUDA found for PyPopsift: ${CUDA_VERSION} (${CUDA_TOOLKIT_ROOT_DIR})")
     ExternalProject_Add(pypopsift
         DEPENDS
         PREFIX            ${_SB_BINARY_DIR}
@@ -32,5 +33,9 @@ if(CUDA_FOUND)
         LOG_BUILD         OFF
         )
 else()
-    message(WARNING "Could not find CUDA >= 7.0")
+    if(DEFINED ENV{GPU_INSTALL} AND NOT "$ENV{GPU_INSTALL}" STREQUAL "")
+        message(FATAL_ERROR "GPU_INSTALL is set, but CUDA >= 7.0 was not found; cannot build PyPopsift GPU SIFT support.")
+    else()
+        message(WARNING "Could not find CUDA >= 7.0")
+    endif()
 endif()
