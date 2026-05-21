@@ -19,9 +19,9 @@ ARG ODM_BUILD_PROCESSES=4
 ARG GPUCACHEBUST=0
 
 # Keep dependency installation cacheable while iterating on SuperBuild/CMake.
-COPY configure.sh requirements.txt ./
+COPY configure_gpu.sh requirements.txt ./
 COPY snap ./snap
-RUN GPU_INSTALL=YES bash configure.sh installreqs
+RUN GPU_INSTALL=YES bash configure_gpu.sh installreqs
 
 # Copy everything else after dependencies are installed.
 COPY . ./
@@ -48,7 +48,16 @@ ARG ODM_GPU_PYPOPSIFT_ONLY=
 
 # Copy everything
 COPY . ./
+# PyPopSift already writes the extension into the OpenSfM package directory via OUTPUT_DIR.
+# The default CMake install target is broken in this path, so skip only the ExternalProject
+# install step while preserving the actual build output.
+# PyPopSift already writes the extension into the OpenSfM package directory.
+# The default CMake install target is broken here, so skip only the install step.
+RUN grep -q 'INSTALL_COMMAND ""' /code/SuperBuild/cmake/External-PyPopsift.cmake \
+  || sed -i '/INSTALL_DIR ${SB_INSTALL_DIR}/a\    INSTALL_COMMAND ""' /code/SuperBuild/cmake/External-PyPopsift.cmake \
+  && grep -n 'INSTALL_COMMAND\|INSTALL_DIR' /code/SuperBuild/cmake/External-PyPopsift.cmake
 
+  
 # Run the build
 RUN echo "GPUCACHEBUST=${GPUCACHEBUST}" \
   && PORTABLE_INSTALL=YES GPU_INSTALL=YES ODM_GPU_PYPOPSIFT_ONLY=${ODM_GPU_PYPOPSIFT_ONLY} bash configure.sh install ${ODM_BUILD_PROCESSES} \

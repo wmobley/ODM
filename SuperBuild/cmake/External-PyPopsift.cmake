@@ -16,6 +16,7 @@ if(CUDA_FOUND)
         GIT_TAG           fe2d1ccc63877ba315e65f34d2adeadd838b3ac3
         #--Update/Patch step----------
         UPDATE_COMMAND    ""
+        PATCH_COMMAND     ${CMAKE_COMMAND} -DSOURCE_DIR=<SOURCE_DIR> -P ${SB_ROOT_DIR}/cmake/Patch-PyPopsiftInstall.cmake
         #--Configure step-------------
         SOURCE_DIR        ${SB_SOURCE_DIR}/pypopsift
         CMAKE_ARGS
