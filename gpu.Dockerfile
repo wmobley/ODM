@@ -60,7 +60,7 @@ RUN grep -q 'INSTALL_COMMAND ""' /code/SuperBuild/cmake/External-PyPopsift.cmake
   
 # Run the build
 RUN echo "GPUCACHEBUST=${GPUCACHEBUST}" \
-  && PORTABLE_INSTALL=YES GPU_INSTALL=YES ODM_GPU_PYPOPSIFT_ONLY=${ODM_GPU_PYPOPSIFT_ONLY} bash configure.sh install ${ODM_BUILD_PROCESSES} \
+  && PORTABLE_INSTALL=YES GPU_INSTALL=YES ODM_GPU_PYPOPSIFT_ONLY=${ODM_GPU_PYPOPSIFT_ONLY} bash configure_gpu.sh install ${ODM_BUILD_PROCESSES} \
   && (find /code/SuperBuild/install -name 'pypopsift*.so' -print -quit | grep -q . \
       || (echo "ERROR: pypopsift was not installed by the GPU build" \
           && find /code/SuperBuild -iname '*popsift*' -print | sort \
@@ -72,7 +72,7 @@ RUN echo "GPUCACHEBUST=${GPUCACHEBUST}" \
 ENV PATH="/code/venv/bin:$PATH"
 
 # Clean Superbuild
-RUN bash configure.sh clean
+RUN bash configure_gpu.sh clean
 
 ### END Builder
 
@@ -95,7 +95,7 @@ RUN apt-get update -y \
 # Install shared libraries that we depend on via APT, but *not*
 # the -dev packages to save space!
 # Also run a smoke test on ODM and OpenSfM
-RUN bash configure.sh installruntimedepsonly \
+RUN bash configure_gpu.sh installruntimedepsonly \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
   && (find /code/SuperBuild/install -name 'pypopsift*.so' -print -quit | grep -q . \
