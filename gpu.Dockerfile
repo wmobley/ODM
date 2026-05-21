@@ -3,6 +3,7 @@ ARG CUDA_IMAGE=nvidia/cuda:12.8.1-devel-ubuntu24.04
 FROM ${CUDA_IMAGE} AS builder
 
 ARG ODM_BUILD_PROCESSES=4
+ARG GPUCACHEBUST=0
 
 # Env variables
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -16,7 +17,9 @@ WORKDIR /code
 COPY . ./
 
 # Run the build
-RUN PORTABLE_INSTALL=YES GPU_INSTALL=YES bash configure.sh install ${ODM_BUILD_PROCESSES}
+RUN echo "GPUCACHEBUST=${GPUCACHEBUST}" \
+  && PORTABLE_INSTALL=YES GPU_INSTALL=YES bash configure.sh install ${ODM_BUILD_PROCESSES} \
+  && find /code/SuperBuild/install -name 'pypopsift*.so' -print -quit | grep -q .
 
 # Tests are skipped in CI Docker builds to keep publish builds focused on
 # producing the runtime image. The final stage still runs ODM/OpenSfM smoke
@@ -56,9 +59,9 @@ RUN apt-get update -y \
 RUN bash configure.sh installruntimedepsonly \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
-  && find /code/SuperBuild/install/bin/opensfm/opensfm -name 'pypopsift*.so' -print -quit | grep -q . \
+  && find /code/SuperBuild/install -name 'pypopsift*.so' -print -quit | grep -q . \
   && bash run.sh --help \
-  && bash -c "eval $(python3 /code/opendm/context.py) && python3 -c 'from opensfm import io, pymap'"
+  && bash -c "eval $(python3 /code/opendm/context.py) && python3 -c 'from opensfm import io, pymap, pypopsift'"
 
 # Entry point
 ENTRYPOINT ["python3", "/code/run.py"]
