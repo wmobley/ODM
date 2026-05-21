@@ -44,13 +44,14 @@ FROM gpu-base AS builder
 
 ARG ODM_BUILD_PROCESSES=4
 ARG GPUCACHEBUST=0
+ARG ODM_GPU_PYPOPSIFT_ONLY=
 
 # Copy everything
 COPY . ./
 
 # Run the build
 RUN echo "GPUCACHEBUST=${GPUCACHEBUST}" \
-  && PORTABLE_INSTALL=YES GPU_INSTALL=YES bash configure.sh install ${ODM_BUILD_PROCESSES} \
+  && PORTABLE_INSTALL=YES GPU_INSTALL=YES ODM_GPU_PYPOPSIFT_ONLY=${ODM_GPU_PYPOPSIFT_ONLY} bash configure.sh install ${ODM_BUILD_PROCESSES} \
   && (find /code/SuperBuild/install -name 'pypopsift*.so' -print -quit | grep -q . \
       || (echo "ERROR: pypopsift was not installed by the GPU build" \
           && find /code/SuperBuild -iname '*popsift*' -print | sort \

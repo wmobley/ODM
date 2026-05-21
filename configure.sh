@@ -165,7 +165,28 @@ install() {
     echo "Compiling SuperBuild"
     cd ${RUNPATH}/SuperBuild
     mkdir -p build && cd build
-    cmake .. && make -j$processes
+    cmake ..
+
+    if [ ! -z "$GPU_INSTALL" ]; then
+        echo "Compiling PyPopSift GPU support"
+        make -j"$processes" pypopsift
+
+        pypopsift_so="$(find "${RUNPATH}/SuperBuild/install" -name 'pypopsift*.so' -print -quit)"
+        if [ -z "$pypopsift_so" ]; then
+            echo "PyPopSift GPU support did not install pypopsift*.so" >&2
+            find "${RUNPATH}/SuperBuild" -iname '*popsift*' -print | sort
+            exit 1
+        fi
+
+        echo "Found PyPopSift Python binding: $pypopsift_so"
+
+        if [ ! -z "$ODM_GPU_PYPOPSIFT_ONLY" ]; then
+            echo "ODM_GPU_PYPOPSIFT_ONLY is set; stopping after PyPopSift GPU support check"
+            return
+        fi
+    fi
+
+    make -j"$processes"
 
     echo "Configuration Finished"
 }
