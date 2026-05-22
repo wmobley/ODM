@@ -30,6 +30,40 @@ jobs:
         registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+    - name: Compute GPU dependency image
+      id: gpu_deps
+      shell: bash
+      run: |
+        set -euo pipefail
+        owner="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+        files="${RUNNER_TEMP}/gpu-deps-files"
+        {
+          printf '%s\0' gpu-deps.Dockerfile configure_gpu.sh configure.sh requirements.txt
+          git ls-files -z snap docker
+        } | sort -z > "$files"
+        hash="$(xargs -0 sha256sum < "$files" | sha256sum | awk '{print $1}')"
+        image="ghcr.io/${owner}/odm-gpu-deps:${hash}"
+        echo "hash=${hash}" >> "$GITHUB_OUTPUT"
+        echo "image=${image}" >> "$GITHUB_OUTPUT"
+    - name: Check GPU dependency image
+      id: gpu_deps_exists
+      shell: bash
+      run: |
+        if docker manifest inspect "${{ steps.gpu_deps.outputs.image }}" >/dev/null 2>&1; then
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+        fi
+    - name: Build and push GPU dependency image
+      if: steps.gpu_deps_exists.outputs.exists != 'true'
+      uses: docker/build-push-action@v5
+      with:
+        file: ./gpu-deps.Dockerfile
+        platforms: linux/amd64
+        push: true
+        cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/odm-gpu-deps:buildcache
+        cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/odm-gpu-deps:buildcache,mode=max
+        tags: ${{ steps.gpu_deps.outputs.image }}
     - name: Docker meta GPU
       id: meta
       uses: docker/metadata-action@v5
@@ -43,12 +77,14 @@ jobs:
       id: docker_build
       uses: docker/build-push-action@v5
       with:
-        file: ./gpu.Dockerfile
+        file: ./gpu-work.Dockerfile
         platforms: linux/amd64
         build-args: |
-          ODM_BUILD_PROCESSES=2
+          GPU_DEPS_IMAGE=${{ steps.gpu_deps.outputs.image }}
+          ODM_BUILD_PROCESSES=1
           GPUCACHEBUST=${{ github.run_id }}
         push: true
+        pull: true
         cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/odm:gpu-buildcache
         cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/odm:gpu-buildcache,mode=max
         tags: ${{ steps.meta.outputs.tags }}

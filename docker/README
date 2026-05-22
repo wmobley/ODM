@@ -1,3 +1,21 @@
 The g++ and gcc scripts in this directory are used to replace the real g++ and gcc programs so that compilation across all projects (including dependencies) uses the -march=nehalem flag, which allows us to build a docker image compatible with most Intel based CPUs.
 
 Without the -march=nehalem flag, a docker image will contain binaries that are optimized for the machine that built the image, and will not run on older machines.
+
+Two-stage dependency/work Docker builds:
+
+The existing Dockerfile, portable.Dockerfile, and gpu.Dockerfile remain one-shot build paths. For faster iteration, build a dependency image only when dependency inputs change, then build a work image from it.
+
+CPU runtime image:
+
+docker build -f cpu-deps.Dockerfile -t odm-cpu-deps:local .
+docker build -f cpu-work.Dockerfile --build-arg CPU_DEPS_IMAGE=odm-cpu-deps:local --build-arg ODM_BUILD_PROCESSES=1 -t odm-cpu-builder-local .
+
+GPU runtime image:
+
+docker build -f gpu-deps.Dockerfile -t odm-gpu-deps:local .
+docker build -f gpu-work.Dockerfile --build-arg GPU_DEPS_IMAGE=odm-gpu-deps:local --build-arg ODM_BUILD_PROCESSES=1 -t odm-gpu-builder-local .
+
+To stop at the compile stage instead of producing the runtime image, add --target builder to the work-image build.
+
+The publish workflows compute content hashes for the dependency Dockerfile, configure script inputs, requirements.txt, snap files, and docker helper scripts. They publish dependency images to GHCR as odm-cpu-deps:<hash> and odm-gpu-deps:<hash>, and only rebuild those images when the hash tag is missing.

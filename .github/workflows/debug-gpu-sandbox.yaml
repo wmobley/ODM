@@ -38,7 +38,7 @@ jobs:
         target: ${{ inputs.target }}
         platforms: linux/amd64
         build-args: |
-          ODM_BUILD_PROCESSES=2
+          ODM_BUILD_PROCESSES=1
           GPUCACHEBUST=${{ github.run_id }}
         push: false
         cache-from: |

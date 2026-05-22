@@ -22,6 +22,8 @@ jobs:
       with:
         file: ./portable.Dockerfile
         platforms: linux/amd64
+        build-args: |
+          ODM_BUILD_PROCESSES=1
         push: false
   
   # snapcraft:

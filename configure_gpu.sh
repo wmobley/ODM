@@ -144,20 +144,74 @@ installreqs() {
     set +e
 }
 
-install() {
-    installreqs
-
+setup_portable_compilers() {
     if [ ! -z "$PORTABLE_INSTALL" ]; then
         echo "Replacing g++ and gcc with our scripts for portability..."
         if [ ! -e /usr/bin/gcc_real ]; then
             sudo mv -v /usr/bin/gcc /usr/bin/gcc_real
-            sudo cp -v ./docker/gcc /usr/bin/gcc
+            sudo cp -v "${RUNPATH}/docker/gcc" /usr/bin/gcc
         fi
         if [ ! -e /usr/bin/g++_real ]; then
             sudo mv -v /usr/bin/g++ /usr/bin/g++_real
-            sudo cp -v ./docker/g++ /usr/bin/g++
+            sudo cp -v "${RUNPATH}/docker/g++" /usr/bin/g++
         fi
     fi
+}
+
+run_pypopsift_linker() {
+    link_file="${RUNPATH}/SuperBuild/build/pypopsift/CMakeFiles/pypopsift.dir/link.txt"
+
+    if [ -f "$link_file" ]; then
+        echo "Running PyPopSift linker command directly: $link_file"
+        cd "${RUNPATH}/SuperBuild/build/pypopsift"
+        bash "$link_file"
+        cd "${RUNPATH}/SuperBuild/build"
+    else
+        echo "Could not find PyPopSift linker file: $link_file" >&2
+        echo "Available PyPopSift build files:"
+        find "${RUNPATH}/SuperBuild/build" -path '*pypopsift*' -print | sort
+        exit 1
+    fi
+}
+
+patch_pypopsift_install_rule() {
+    install_file="${RUNPATH}/SuperBuild/build/pypopsift/cmake_install.cmake"
+    install_stamp="${RUNPATH}/SuperBuild/build/pypopsift/stamp/pypopsift-install"
+
+    if [ -f "$install_file" ]; then
+        echo "Patching generated PyPopSift install file: $install_file"
+        cp "$install_file" "$install_file.before-pypopsift-patch"
+        sed -i '/file(INSTALL DESTINATION.*pypopsift\.cpython.*\.so/d' "$install_file"
+    else
+        echo "Warning: could not find PyPopSift install file: $install_file"
+    fi
+
+    echo "Marking PyPopSift install stamp complete: $install_stamp"
+    mkdir -p "$(dirname "$install_stamp")"
+    touch "$install_stamp"
+}
+
+ensure_pypopsift_so() {
+    pypopsift_so="$(find "${RUNPATH}/SuperBuild/install" -name 'pypopsift*.so' -print -quit)"
+    if [ -z "$pypopsift_so" ]; then
+        echo "PyPopSift Python binding is missing; trying a direct linker pass"
+        run_pypopsift_linker
+        pypopsift_so="$(find "${RUNPATH}/SuperBuild/install" -name 'pypopsift*.so' -print -quit)"
+    fi
+
+    if [ -z "$pypopsift_so" ]; then
+        echo "PyPopSift GPU support did not produce pypopsift*.so" >&2
+        find "${RUNPATH}/SuperBuild" -iname '*popsift*' -print | sort
+        exit 1
+    fi
+
+    echo "Found PyPopSift Python binding: $pypopsift_so"
+    file "$pypopsift_so" || true
+    ldd "$pypopsift_so" || true
+}
+
+buildsuper() {
+    setup_portable_compilers
 
     set -eo pipefail
 
@@ -172,60 +226,11 @@ install() {
 
         make -j"$processes" pypopsift || {
             echo "pypopsift target failed; attempting manual PyPopSift recovery"
-
-            link_file="${RUNPATH}/SuperBuild/build/pypopsift/CMakeFiles/pypopsift.dir/link.txt"
-            install_file="${RUNPATH}/SuperBuild/build/pypopsift/cmake_install.cmake"
-            install_stamp="${RUNPATH}/SuperBuild/build/pypopsift/stamp/pypopsift-install"
-
-            if [ -f "$link_file" ]; then
-                echo "Running PyPopSift linker command directly: $link_file"
-                cd "${RUNPATH}/SuperBuild/build/pypopsift"
-                bash "$link_file"
-                cd "${RUNPATH}/SuperBuild/build"
-            else
-                echo "Could not find PyPopSift linker file: $link_file" >&2
-                echo "Available PyPopSift build files:"
-                find "${RUNPATH}/SuperBuild/build" -path '*pypopsift*' -print | sort
-                exit 1
-            fi
-
-            if [ -f "$install_file" ]; then
-                echo "Patching generated PyPopSift install file: $install_file"
-                cp "$install_file" "$install_file.before-pypopsift-patch"
-                sed -i '/file(INSTALL DESTINATION.*pypopsift\.cpython.*\.so/d' "$install_file"
-            else
-                echo "Warning: could not find PyPopSift install file: $install_file"
-            fi
-
-            echo "Marking PyPopSift install stamp complete: $install_stamp"
-            mkdir -p "$(dirname "$install_stamp")"
-            touch "$install_stamp"
+            run_pypopsift_linker
+            patch_pypopsift_install_rule
         }
 
-        pypopsift_so="$(find "${RUNPATH}/SuperBuild/install" -name 'pypopsift*.so' -print -quit)"
-        if [ -z "$pypopsift_so" ]; then
-            echo "PyPopSift GPU support did not install pypopsift*.so after recovery" >&2
-            echo "Trying one final direct linker pass"
-
-            link_file="${RUNPATH}/SuperBuild/build/pypopsift/CMakeFiles/pypopsift.dir/link.txt"
-            if [ -f "$link_file" ]; then
-                cd "${RUNPATH}/SuperBuild/build/pypopsift"
-                bash "$link_file"
-                cd "${RUNPATH}/SuperBuild/build"
-            fi
-
-            pypopsift_so="$(find "${RUNPATH}/SuperBuild/install" -name 'pypopsift*.so' -print -quit)"
-        fi
-
-        if [ -z "$pypopsift_so" ]; then
-            echo "PyPopSift GPU support did not produce pypopsift*.so" >&2
-            find "${RUNPATH}/SuperBuild" -iname '*popsift*' -print | sort
-            exit 1
-        fi
-
-        echo "Found PyPopSift Python binding: $pypopsift_so"
-        file "$pypopsift_so" || true
-        ldd "$pypopsift_so" || true
+        ensure_pypopsift_so
 
         if [ ! -z "$ODM_GPU_PYPOPSIFT_ONLY" ]; then
             echo "ODM_GPU_PYPOPSIFT_ONLY is set; stopping after PyPopSift GPU support check"
@@ -235,7 +240,16 @@ install() {
 
     make -j"$processes"
 
+    if [ ! -z "$GPU_INSTALL" ]; then
+        ensure_pypopsift_so
+    fi
+
     echo "Configuration Finished"
+}
+
+install() {
+    installreqs
+    buildsuper
 }
 
 uninstall() {
@@ -268,10 +282,10 @@ clean() {
 
 usage() {
     echo "Usage:"
-    echo "bash configure_gpu.sh <install|update|uninstall|installreqs|help> [nproc]"
+    echo "bash configure_gpu.sh <install|buildsuper|update|uninstall|installreqs|help> [nproc]"
     echo "Subcommands:"
     echo "  install"
-    echo "    Installs all dependencies and modules for running OpenDroneMap"
+    echo "    Installs all dependencies and modules for running OpenDroneMap by running installreqs and buildsuper"
     echo "  installruntimedepsonly"
     echo "    Installs *only* the runtime libraries (used by docker builds). To build from source, use the 'install' command."
     echo "  reinstall"
@@ -280,6 +294,8 @@ usage() {
     echo "    Removes SuperBuild and build modules. Does not uninstall dependencies"
     echo "  installreqs"
     echo "    Only installs the requirements, does not build SuperBuild"
+    echo "  buildsuper"
+    echo "    Builds SuperBuild only (assumes installreqs has already run)"
     echo "  clean"
     echo "    Cleans the SuperBuild directory by removing temporary files."
     echo "  help"
@@ -287,7 +303,7 @@ usage() {
     echo "[nproc] is an optional argument that can set the number of processes for the make -j tag. By default it uses $(nproc)"
 }
 
-if [[ $1 =~ ^(install|installruntimedepsonly|reinstall|uninstall|installreqs|clean)$ ]]; then
+if [[ $1 =~ ^(install|buildsuper|installruntimedepsonly|reinstall|uninstall|installreqs|clean)$ ]]; then
     RUNPATH="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
     "$1"
 else

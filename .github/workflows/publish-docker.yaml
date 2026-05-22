@@ -30,6 +30,40 @@ jobs:
         registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+    - name: Compute CPU dependency image
+      id: cpu_deps
+      shell: bash
+      run: |
+        set -euo pipefail
+        owner="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+        files="${RUNNER_TEMP}/cpu-deps-files"
+        {
+          printf '%s\0' cpu-deps.Dockerfile configure.sh requirements.txt
+          git ls-files -z snap docker
+        } | sort -z > "$files"
+        hash="$(xargs -0 sha256sum < "$files" | sha256sum | awk '{print $1}')"
+        image="ghcr.io/${owner}/odm-cpu-deps:${hash}"
+        echo "hash=${hash}" >> "$GITHUB_OUTPUT"
+        echo "image=${image}" >> "$GITHUB_OUTPUT"
+    - name: Check CPU dependency image
+      id: cpu_deps_exists
+      shell: bash
+      run: |
+        if docker manifest inspect "${{ steps.cpu_deps.outputs.image }}" >/dev/null 2>&1; then
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+        fi
+    - name: Build and push CPU dependency image
+      if: steps.cpu_deps_exists.outputs.exists != 'true'
+      uses: docker/build-push-action@v5
+      with:
+        file: ./cpu-deps.Dockerfile
+        platforms: linux/amd64
+        push: true
+        cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/odm-cpu-deps:buildcache
+        cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/odm-cpu-deps:buildcache,mode=max
+        tags: ${{ steps.cpu_deps.outputs.image }}
     - name: Docker meta
       id: meta
       uses: docker/metadata-action@v5
@@ -42,12 +76,15 @@ jobs:
       id: docker_build
       uses: docker/build-push-action@v5
       with:
-        file: ./portable.Dockerfile
+        file: ./cpu-work.Dockerfile
         platforms: linux/amd64
         build-args: |
-          ODM_BUILD_PROCESSES=2
+          CPU_DEPS_IMAGE=${{ steps.cpu_deps.outputs.image }}
+          ODM_BUILD_PROCESSES=1
+          CACHEBUST=${{ github.run_id }}
           POTREECACHEBUST=${{ github.run_id }}
         push: true
+        pull: true
         cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/odm:buildcache
         cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/odm:buildcache,mode=max
         tags: ${{ steps.meta.outputs.tags }}

@@ -140,25 +140,25 @@ installreqs() {
     # edt requires numpy to build
     venv/bin/pip install numpy==2.3.2
     venv/bin/pip install -r requirements.txt --ignore-installed
-    #if [ ! -z "$GPU_INSTALL" ]; then
-    #fi
     set +e
 }
     
-install() {
-    installreqs
-
+setup_portable_compilers() {
     if [ ! -z "$PORTABLE_INSTALL" ]; then
         echo "Replacing g++ and gcc with our scripts for portability..."
         if [ ! -e /usr/bin/gcc_real ]; then
             sudo mv -v /usr/bin/gcc /usr/bin/gcc_real
-            sudo cp -v ./docker/gcc /usr/bin/gcc
+            sudo cp -v "${RUNPATH}/docker/gcc" /usr/bin/gcc
         fi
         if [ ! -e /usr/bin/g++_real ]; then
             sudo mv -v /usr/bin/g++ /usr/bin/g++_real
-            sudo cp -v ./docker/g++ /usr/bin/g++
+            sudo cp -v "${RUNPATH}/docker/g++" /usr/bin/g++
         fi
     fi
+}
+
+buildsuper() {
+    setup_portable_compilers
 
     set -eo pipefail
     
@@ -167,29 +167,14 @@ install() {
     mkdir -p build && cd build
     cmake ..
 
-    if [ ! -z "$GPU_INSTALL" ]; then
-        echo "Compiling PyPopSift GPU support"
-        mkdir -p "${RUNPATH}/SuperBuild/install/bin/opensfm/opensfm"
-        make -j"$processes" pypopsift
-
-        pypopsift_so="$(find "${RUNPATH}/SuperBuild/install" -name 'pypopsift*.so' -print -quit)"
-        if [ -z "$pypopsift_so" ]; then
-            echo "PyPopSift GPU support did not install pypopsift*.so" >&2
-            find "${RUNPATH}/SuperBuild" -iname '*popsift*' -print | sort
-            exit 1
-        fi
-
-        echo "Found PyPopSift Python binding: $pypopsift_so"
-
-        if [ ! -z "$ODM_GPU_PYPOPSIFT_ONLY" ]; then
-            echo "ODM_GPU_PYPOPSIFT_ONLY is set; stopping after PyPopSift GPU support check"
-            return
-        fi
-    fi
-
     make -j"$processes"
 
     echo "Configuration Finished"
+}
+
+install() {
+    installreqs
+    buildsuper
 }
 
 uninstall() {
@@ -222,10 +207,10 @@ clean() {
 
 usage() {
     echo "Usage:"
-    echo "bash configure.sh <install|update|uninstall|installreqs|help> [nproc]"
+    echo "bash configure.sh <install|buildsuper|update|uninstall|installreqs|help> [nproc]"
     echo "Subcommands:"
     echo "  install"
-    echo "    Installs all dependencies and modules for running OpenDroneMap"
+    echo "    Installs all dependencies and modules for running OpenDroneMap by running installreqs and buildsuper"
     echo "  installruntimedepsonly"
     echo "    Installs *only* the runtime libraries (used by docker builds). To build from source, use the 'install' command."
     echo "  reinstall"
@@ -234,6 +219,8 @@ usage() {
     echo "    Removes SuperBuild and build modules. Does not uninstall dependencies"
     echo "  installreqs"
     echo "    Only installs the requirements (does not build SuperBuild)"
+    echo "  buildsuper"
+    echo "    Builds SuperBuild only (assumes installreqs has already run)"
     echo "  clean"
     echo "    Cleans the SuperBuild directory by removing temporary files. "
     echo "  help"
@@ -241,7 +228,7 @@ usage() {
     echo "[nproc] is an optional argument that can set the number of processes for the make -j tag. By default it uses $(nproc)"
 }
 
-if [[ $1 =~ ^(install|installruntimedepsonly|reinstall|uninstall|installreqs|clean)$ ]]; then
+if [[ $1 =~ ^(install|buildsuper|installruntimedepsonly|reinstall|uninstall|installreqs|clean)$ ]]; then
     RUNPATH="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
     "$1"
 else

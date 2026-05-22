@@ -47,7 +47,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 FROM odm-deps AS odm-superbuild-pypopsift
 
-ARG ODM_BUILD_PROCESSES=2
+ARG ODM_BUILD_PROCESSES=1
 ARG GPUCACHEBUST=0
 
 COPY SuperBuild ./SuperBuild
