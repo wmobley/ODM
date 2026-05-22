@@ -170,7 +170,33 @@ install() {
     if [ ! -z "$GPU_INSTALL" ]; then
         echo "Compiling PyPopSift GPU support"
         mkdir -p "${RUNPATH}/SuperBuild/install/bin/opensfm/opensfm"
-        make -j"$processes" pypopsift
+        make -j"$processes" pypopsift || {
+            echo "pypopsift failed during generated install step; trying direct link + install-rule patch"
+
+            link_file="${RUNPATH}/SuperBuild/build/pypopsift/CMakeFiles/pypopsift.dir/link.txt"
+            install_file="${RUNPATH}/SuperBuild/build/pypopsift/cmake_install.cmake"
+
+            if [ -f "$link_file" ]; then
+                echo "Running PyPopSift linker command directly: $link_file"
+                cd "${RUNPATH}/SuperBuild/build/pypopsift"
+                bash "$link_file"
+                cd "${RUNPATH}/SuperBuild/build"
+            else
+                echo "Could not find PyPopSift linker file: $link_file" >&2
+                exit 1
+            fi
+
+            if [ -f "$install_file" ]; then
+                echo "Patching generated PyPopSift install file: $install_file"
+                cp "$install_file" "$install_file.before-pypopsift-patch"
+                sed -i '/file(INSTALL DESTINATION.*pypopsift\.cpython.*\.so/d' "$install_file"
+            else
+                echo "Could not find PyPopSift install file: $install_file" >&2
+                exit 1
+            fi
+
+            make -j"$processes" pypopsift
+        }
 
         pypopsift_so="$(find "${RUNPATH}/SuperBuild/install" -name 'pypopsift*.so' -print -quit)"
         if [ -z "$pypopsift_so" ]; then
