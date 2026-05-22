@@ -3,7 +3,7 @@
 # Ensure the DEBIAN_FRONTEND environment variable is set for apt-get calls
 APT_GET="env DEBIAN_FRONTEND=noninteractive $(command -v apt-get)"
 
-check_version(){  
+check_version(){
   UBUNTU_VERSION=$(lsb_release -r)
   case "$UBUNTU_VERSION" in
     *"20.04"*|*"21.04"*|*"24.04"*)
@@ -109,7 +109,7 @@ installruntimedepsonly() {
     installdepsfromsnapcraft runtime prereqs
     echo "Installing OpenCV Dependencies"
     installdepsfromsnapcraft runtime opencv
-    echo "Installing OpenSfM Dependencies".
+    echo "Installing OpenSfM Dependencies"
     installdepsfromsnapcraft runtime opensfm
     echo "Installing OpenMVS Dependencies"
     installdepsfromsnapcraft runtime openmvs
@@ -117,15 +117,15 @@ installruntimedepsonly() {
 
 installreqs() {
     cd /code
-    
+
     ## Set up library paths
     export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$RUNPATH/SuperBuild/install/lib
 
-	## Before installing
+    ## Before installing
     echo "Updating the system"
     ensure_prereqs
     check_version
-    
+
     echo "Installing Required Requisites"
     installdepsfromsnapcraft build prereqs
     echo "Installing OpenCV Dependencies"
@@ -134,17 +134,16 @@ installreqs() {
     installdepsfromsnapcraft build opensfm
     echo "Installing OpenMVS Dependencies"
     installdepsfromsnapcraft build openmvs
-    
+
     set -e
 
     # edt requires numpy to build
     venv/bin/pip install numpy==2.3.2
     venv/bin/pip install -r requirements.txt --ignore-installed
-    #if [ ! -z "$GPU_INSTALL" ]; then
-    #fi
+
     set +e
 }
-    
+
 install() {
     installreqs
 
@@ -161,58 +160,78 @@ install() {
     fi
 
     set -eo pipefail
-    
+
     echo "Compiling SuperBuild"
     cd ${RUNPATH}/SuperBuild
     mkdir -p build && cd build
     cmake ..
 
-   if [ ! -z "$GPU_INSTALL" ]; then
-    echo "Compiling PyPopSift GPU support"
-    mkdir -p "${RUNPATH}/SuperBuild/install/bin/opensfm/opensfm"
+    if [ ! -z "$GPU_INSTALL" ]; then
+        echo "Compiling PyPopSift GPU support"
+        mkdir -p "${RUNPATH}/SuperBuild/install/bin/opensfm/opensfm"
 
-    make -j"$processes" pypopsift || {
-        echo "pypopsift failed during generated install step; trying direct link + install-rule patch"
+        make -j"$processes" pypopsift || {
+            echo "pypopsift target failed; attempting manual PyPopSift recovery"
 
-        link_file="${RUNPATH}/SuperBuild/build/pypopsift/CMakeFiles/pypopsift.dir/link.txt"
-        install_file="${RUNPATH}/SuperBuild/build/pypopsift/cmake_install.cmake"
+            link_file="${RUNPATH}/SuperBuild/build/pypopsift/CMakeFiles/pypopsift.dir/link.txt"
+            install_file="${RUNPATH}/SuperBuild/build/pypopsift/cmake_install.cmake"
+            install_stamp="${RUNPATH}/SuperBuild/build/pypopsift/stamp/pypopsift-install"
 
-        if [ -f "$link_file" ]; then
-            echo "Running PyPopSift linker command directly: $link_file"
-            cd "${RUNPATH}/SuperBuild/build/pypopsift"
-            bash "$link_file"
-            cd "${RUNPATH}/SuperBuild/build"
-        else
-            echo "Could not find PyPopSift linker file: $link_file" >&2
+            if [ -f "$link_file" ]; then
+                echo "Running PyPopSift linker command directly: $link_file"
+                cd "${RUNPATH}/SuperBuild/build/pypopsift"
+                bash "$link_file"
+                cd "${RUNPATH}/SuperBuild/build"
+            else
+                echo "Could not find PyPopSift linker file: $link_file" >&2
+                echo "Available PyPopSift build files:"
+                find "${RUNPATH}/SuperBuild/build" -path '*pypopsift*' -print | sort
+                exit 1
+            fi
+
+            if [ -f "$install_file" ]; then
+                echo "Patching generated PyPopSift install file: $install_file"
+                cp "$install_file" "$install_file.before-pypopsift-patch"
+                sed -i '/file(INSTALL DESTINATION.*pypopsift\.cpython.*\.so/d' "$install_file"
+            else
+                echo "Warning: could not find PyPopSift install file: $install_file"
+            fi
+
+            echo "Marking PyPopSift install stamp complete: $install_stamp"
+            mkdir -p "$(dirname "$install_stamp")"
+            touch "$install_stamp"
+        }
+
+        pypopsift_so="$(find "${RUNPATH}/SuperBuild/install" -name 'pypopsift*.so' -print -quit)"
+        if [ -z "$pypopsift_so" ]; then
+            echo "PyPopSift GPU support did not install pypopsift*.so after recovery" >&2
+            echo "Trying one final direct linker pass"
+
+            link_file="${RUNPATH}/SuperBuild/build/pypopsift/CMakeFiles/pypopsift.dir/link.txt"
+            if [ -f "$link_file" ]; then
+                cd "${RUNPATH}/SuperBuild/build/pypopsift"
+                bash "$link_file"
+                cd "${RUNPATH}/SuperBuild/build"
+            fi
+
+            pypopsift_so="$(find "${RUNPATH}/SuperBuild/install" -name 'pypopsift*.so' -print -quit)"
+        fi
+
+        if [ -z "$pypopsift_so" ]; then
+            echo "PyPopSift GPU support did not produce pypopsift*.so" >&2
+            find "${RUNPATH}/SuperBuild" -iname '*popsift*' -print | sort
             exit 1
         fi
 
-        if [ -f "$install_file" ]; then
-            echo "Patching generated PyPopSift install file: $install_file"
-            cp "$install_file" "$install_file.before-pypopsift-patch"
-            sed -i '/file(INSTALL DESTINATION.*pypopsift\.cpython.*\.so/d' "$install_file"
-        else
-            echo "Could not find PyPopSift install file: $install_file" >&2
-            exit 1
+        echo "Found PyPopSift Python binding: $pypopsift_so"
+        file "$pypopsift_so" || true
+        ldd "$pypopsift_so" || true
+
+        if [ ! -z "$ODM_GPU_PYPOPSIFT_ONLY" ]; then
+            echo "ODM_GPU_PYPOPSIFT_ONLY is set; stopping after PyPopSift GPU support check"
+            return
         fi
-
-        make -j"$processes" pypopsift
-    }
-
-    pypopsift_so="$(find "${RUNPATH}/SuperBuild/install" -name 'pypopsift*.so' -print -quit)"
-    if [ -z "$pypopsift_so" ]; then
-        echo "PyPopSift GPU support did not install pypopsift*.so" >&2
-        find "${RUNPATH}/SuperBuild" -iname '*popsift*' -print | sort
-        exit 1
     fi
-
-    echo "Found PyPopSift Python binding: $pypopsift_so"
-
-    if [ ! -z "$ODM_GPU_PYPOPSIFT_ONLY" ]; then
-        echo "ODM_GPU_PYPOPSIFT_ONLY is set; stopping after PyPopSift GPU support check"
-        return
-    fi
-fi
 
     make -j"$processes"
 
@@ -249,20 +268,20 @@ clean() {
 
 usage() {
     echo "Usage:"
-    echo "bash configure.sh <install|update|uninstall|installreqs|help> [nproc]"
+    echo "bash configure_gpu.sh <install|update|uninstall|installreqs|help> [nproc]"
     echo "Subcommands:"
     echo "  install"
     echo "    Installs all dependencies and modules for running OpenDroneMap"
     echo "  installruntimedepsonly"
     echo "    Installs *only* the runtime libraries (used by docker builds). To build from source, use the 'install' command."
     echo "  reinstall"
-    echo "    Removes SuperBuild and build modules, then re-installs them. Note this does not update OpenDroneMap to the latest version. "
+    echo "    Removes SuperBuild and build modules, then re-installs them. Note this does not update OpenDroneMap to the latest version."
     echo "  uninstall"
     echo "    Removes SuperBuild and build modules. Does not uninstall dependencies"
     echo "  installreqs"
-    echo "    Only installs the requirements (does not build SuperBuild)"
+    echo "    Only installs the requirements, does not build SuperBuild"
     echo "  clean"
-    echo "    Cleans the SuperBuild directory by removing temporary files. "
+    echo "    Cleans the SuperBuild directory by removing temporary files."
     echo "  help"
     echo "    Displays this message"
     echo "[nproc] is an optional argument that can set the number of processes for the make -j tag. By default it uses $(nproc)"
