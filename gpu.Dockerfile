@@ -53,9 +53,6 @@ COPY . ./
 # install step while preserving the actual build output.
 # PyPopSift already writes the extension into the OpenSfM package directory.
 # The default CMake install target is broken here, so skip only the install step.
-RUN grep -q 'INSTALL_COMMAND ""' /code/SuperBuild/cmake/External-PyPopsift.cmake \
-  || sed -i '/INSTALL_DIR ${SB_INSTALL_DIR}/a\    INSTALL_COMMAND ""' /code/SuperBuild/cmake/External-PyPopsift.cmake \
-  && grep -n 'INSTALL_COMMAND\|INSTALL_DIR' /code/SuperBuild/cmake/External-PyPopsift.cmake
 
   
 # Run the build
