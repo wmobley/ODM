@@ -26,6 +26,12 @@ RUN GPU_INSTALL=YES bash configure_gpu.sh installreqs
 # Copy everything else after dependencies are installed.
 COPY . ./
 
+RUN echo "=== configure_gpu.sh PyPopSift block currently in image ===" \
+  && grep -n "pypopsift target failed\|Running PyPopSift linker\|Trying one final direct linker\|make -j.*pypopsift\|link_file=" configure_gpu.sh \
+  && echo "=== checking script path ===" \
+  && ls -lah configure_gpu.sh \
+  && head -1 configure_gpu.sh
+
 # Build only the CUDA SIFT extension. This target is for fast CI debugging;
 # it avoids building the full ODM SuperBuild before proving PyPopSift works.
 RUN echo "GPUCACHEBUST=${GPUCACHEBUST}" \
