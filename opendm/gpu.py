@@ -2,11 +2,32 @@ import os
 import sys
 import shutil
 import ctypes
+import subprocess
 from functools import lru_cache
 from opendm import log
 
 def gpu_disabled_by_user_env():
     return bool(os.environ.get('ODM_NO_GPU'))
+
+def _log_nvidia_smi_devices():
+    try:
+        output = subprocess.check_output([
+            'nvidia-smi',
+            '--query-gpu=index,name,driver_version,memory.total',
+            '--format=csv,noheader,nounits'
+        ], stderr=subprocess.STDOUT, timeout=10).decode('utf-8', errors='replace').strip()
+        if output:
+            for line in output.splitlines():
+                parts = [p.strip() for p in line.split(',')]
+                if len(parts) >= 4:
+                    log.ODM_INFO("GPU device available: index=%s name=%s driver=%s memory_total=%s MiB" %
+                                 (parts[0], parts[1], parts[2], parts[3]))
+                else:
+                    log.ODM_INFO("GPU device available: %s" % line)
+        else:
+            log.ODM_INFO("nvidia-smi returned no GPU rows")
+    except Exception as e:
+        log.ODM_WARNING("nvidia-smi detected, but GPU details could not be queried: %s" % e)
 
 @lru_cache(maxsize=None)
 def has_popsift_and_can_handle_texsize(width, height):
@@ -88,7 +109,8 @@ def has_gpu(args):
             return False
     else:
         if shutil.which('nvidia-smi') is not None:
-            log.ODM_INFO("nvidia-smi detected")
+            log.ODM_INFO("nvidia-smi detected; GPU acceleration is available to ODM")
+            _log_nvidia_smi_devices()
             return True
         else:
             log.ODM_INFO("No nvidia-smi detected")

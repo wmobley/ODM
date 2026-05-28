@@ -82,8 +82,10 @@ class ODMOpenMVSStage(types.ODM_Stage):
             use_gpu = has_gpu(args)
             if use_gpu:
                 gpu_config.append("--cuda-device -1")
+                log.ODM_INFO("OpenMVS dense reconstruction GPU acceleration enabled (--cuda-device -1)")
             else:
                 gpu_config.append("--cuda-device -2")
+                log.ODM_INFO("OpenMVS dense reconstruction running on CPU (--cuda-device -2)")
 
             extra_config = []
 
@@ -111,6 +113,7 @@ class ODMOpenMVSStage(types.ODM_Stage):
                 if e.errorCode == 1 and use_gpu:
                     log.ODM_WARNING("OpenMVS failed with GPU, is your graphics card driver up to date? Falling back to CPU.")
                     gpu_config = ["--cuda-device -2"]
+                    log.ODM_INFO("OpenMVS dense reconstruction retrying on CPU (--cuda-device -2)")
                     run_densify()
                 elif (e.errorCode == 137 or e.errorCode == 143 or e.errorCode == 3221226505) and not pc_tile:
                     log.ODM_WARNING("OpenMVS ran out of memory, we're going to turn on tiling to see if we can process this.")
