@@ -29,6 +29,18 @@ from opensfm.actions.export_geocoords import _transform
 class OSFMContext:
     def __init__(self, opensfm_project_path):
         self.opensfm_project_path = opensfm_project_path
+
+    def done_file(self, name):
+        return self.path("%s_done.txt" % name)
+
+    def has_done_file(self, name):
+        return io.file_exists(self.done_file(name))
+
+    def has_nonempty_dir(self, path):
+        if not io.dir_exists(path):
+            return False
+        with os.scandir(path) as entries:
+            return any(entries)
     
     def run(self, command):
         osfm_bin = os.path.join(context.opensfm_path, 'bin', 'opensfm')
@@ -62,20 +74,30 @@ class OSFMContext:
         tracks_file = os.path.join(self.opensfm_project_path, 'tracks.csv')
         reconstruction_file = os.path.join(self.opensfm_project_path, 'reconstruction.json')
 
-        return io.file_exists(tracks_file) and io.file_exists(reconstruction_file)
+        return io.file_exists(tracks_file) and io.file_exists(reconstruction_file) and \
+            self.has_done_file("create_tracks") and self.has_done_file("reconstruct")
 
     def create_tracks(self, rerun=False):
         tracks_file = os.path.join(self.opensfm_project_path, 'tracks.csv')
         rs_file = self.path('rs_done.txt')
 
-        if not io.file_exists(tracks_file) or rerun:
+        if not io.file_exists(tracks_file) or not self.has_done_file("create_tracks") or rerun:
+            if io.file_exists(self.done_file("create_tracks")):
+                os.remove(self.done_file("create_tracks"))
+            if io.file_exists(tracks_file):
+                os.remove(tracks_file)
             self.run('create_tracks')
+            self.touch(self.done_file("create_tracks"))
         else:
             log.ODM_WARNING('Found a valid OpenSfM tracks file in: %s' % tracks_file)
 
     def reconstruct(self, rolling_shutter_correct=False, merge_partial=False, rerun=False):
         reconstruction_file = os.path.join(self.opensfm_project_path, 'reconstruction.json')
-        if not io.file_exists(reconstruction_file) or rerun:
+        if not io.file_exists(reconstruction_file) or not self.has_done_file("reconstruct") or rerun:
+            if io.file_exists(self.done_file("reconstruct")):
+                os.remove(self.done_file("reconstruct"))
+            if io.file_exists(reconstruction_file):
+                os.remove(reconstruction_file)
             self.run('reconstruct')
             if merge_partial:
                 self.check_merge_partial_reconstructions()
@@ -89,6 +111,7 @@ class OSFMContext:
                             "that there are enough recognizable features "
                             "and that the images are in focus. "
                             "The program will now exit.")
+        self.touch(self.done_file("reconstruct"))
 
         if rolling_shutter_correct:
             rs_file = self.path('rs_done.txt')
@@ -437,12 +460,17 @@ class OSFMContext:
         features_dir = self.path("features")
         matches_dir = self.path("matches")
 
-        return io.dir_exists(features_dir) and io.dir_exists(matches_dir)
+        return self.has_nonempty_dir(features_dir) and self.has_nonempty_dir(matches_dir) and \
+            self.has_done_file("detect_features") and self.has_done_file("match_features")
 
     def feature_matching(self, rerun=False):
         features_dir = self.path("features")
         
-        if not io.dir_exists(features_dir) or rerun:
+        if not self.has_nonempty_dir(features_dir) or not self.has_done_file("detect_features") or rerun:
+            if os.path.exists(features_dir):
+                shutil.rmtree(features_dir)
+            if io.file_exists(self.done_file("detect_features")):
+                os.remove(self.done_file("detect_features"))
             try:
                 self.run('detect_features')
             except system.SubprocessException as e:
@@ -457,6 +485,7 @@ class OSFMContext:
                     self.run('detect_features')
                 else:
                     raise e
+            self.touch(self.done_file("detect_features"))
         else:
             log.ODM_WARNING('Detect features already done: %s exists' % features_dir)
 
@@ -464,8 +493,13 @@ class OSFMContext:
 
     def match_features(self, rerun=False):
         matches_dir = self.path("matches")
-        if not io.dir_exists(matches_dir) or rerun:
+        if not self.has_nonempty_dir(matches_dir) or not self.has_done_file("match_features") or rerun:
+            if os.path.exists(matches_dir):
+                shutil.rmtree(matches_dir)
+            if io.file_exists(self.done_file("match_features")):
+                os.remove(self.done_file("match_features"))
             self.run('match_features')
+            self.touch(self.done_file("match_features"))
         else:
             log.ODM_WARNING('Match features already done: %s exists' % matches_dir)
 
