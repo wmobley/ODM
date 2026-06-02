@@ -1545,13 +1545,18 @@ class ToolchainTask(Task):
 
             # Preserve submodel identity for remote toolchain runs so ODM generates
             # cut/feather rasters required by split-merge orthophoto assembly.
-            submodel_marker = "opensfm/split_merge_stop_at_reconstruction.txt"
+            # Do not reuse split_merge_stop_at_reconstruction.txt here: run_opensfm
+            # treats that marker as a hard stop after reconstruction.
+            submodel_marker = "opensfm/features/empty"
             if os.path.exists(self.path(submodel_marker)):
                 seed_submodel_files = [submodel_marker]
                 seed_submodel_touch_files = []
             else:
                 seed_submodel_files = []
-                seed_submodel_touch_files = [submodel_marker]
+                if submodel_marker in missing_optional_markers:
+                    seed_submodel_touch_files = []
+                else:
+                    seed_submodel_touch_files = [submodel_marker]
 
             self.execute_remote_task(handle_result, seed_files=["opensfm/camera_models.json",
                                                 "opensfm/reference_lla.json",
