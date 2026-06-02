@@ -6,6 +6,7 @@ FROM ${GPU_DEPS_IMAGE} AS builder
 ARG ODM_BUILD_PROCESSES=1
 ARG ODM_GPU_PYPOPSIFT_ONLY=
 ARG GPUCACHEBUST=0
+ARG POTREECACHEBUST=0
 
 ENV PATH="/code/venv/bin:$PATH"
 
@@ -18,8 +19,27 @@ RUN echo "GPUCACHEBUST=${GPUCACHEBUST}" \
   && (find /code/SuperBuild/install -name 'pypopsift*.so' -print -quit | grep -q . \
       || (echo "ERROR: pypopsift was not installed by the GPU build" \
           && find /code/SuperBuild -iname '*popsift*' -print | sort \
-          && exit 1)) \
-  && bash configure_gpu.sh clean
+          && exit 1))
+
+RUN set -eux; echo "POTREECACHEBUST=${POTREECACHEBUST}" \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends \
+    git cmake g++ make libtbb-dev libboost-all-dev liblaszip-dev libeigen3-dev \
+  && rm -rf /var/lib/apt/lists/* \
+  && if ! command -v PotreeConverter >/dev/null 2>&1; then \
+       git clone --depth 1 --branch 1.7 https://github.com/potree/PotreeConverter.git /tmp/PotreeConverter \
+       && python3 /code/docker/patch_potree.py /tmp/PotreeConverter \
+       && cmake -S /tmp/PotreeConverter -B /tmp/PotreeConverter/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=17 \
+       && cmake --build /tmp/PotreeConverter/build -j"$(nproc)" \
+       && POTREE_BIN="$(find /tmp/PotreeConverter/build -type f -name PotreeConverter -print -quit)" \
+       && test -n "$POTREE_BIN" \
+       && install -m 755 "$POTREE_BIN" /code/SuperBuild/install/bin/PotreeConverter \
+       && test -x /code/SuperBuild/install/bin/PotreeConverter \
+       && cp -R /tmp/PotreeConverter /code/PotreeConverter; \
+     fi \
+  && rm -rf /tmp/PotreeConverter
+
+RUN bash configure_gpu.sh clean
 
 FROM ${CUDA_IMAGE} AS runtime
 
@@ -37,21 +57,24 @@ WORKDIR /code
 
 COPY --from=builder /code /code
 
-ENV PATH="/code/venv/bin:$PATH"
+ENV PATH="/code/venv/bin:/code/SuperBuild/install/bin:$PATH"
 
 RUN apt-get update -y \
  && apt-get install -y --no-install-recommends \
     ffmpeg \
+    liblaszip8 \
     libtbb12 \
     libtbbmalloc2
 
 RUN bash configure_gpu.sh installruntimedepsonly \
+  && ln -sf /code/SuperBuild/install/bin/PotreeConverter /usr/local/bin/PotreeConverter \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
   && (find /code/SuperBuild/install -name 'pypopsift*.so' -print -quit | grep -q . \
       || (echo "ERROR: pypopsift is missing from the runtime image" \
           && find /code/SuperBuild -iname '*popsift*' -print | sort \
           && exit 1)) \
+  && command -v PotreeConverter \
   && if [ -z "$ODM_GPU_PYPOPSIFT_ONLY" ]; then \
        bash run.sh --help \
        && bash -c "eval $(python3 /code/opendm/context.py) && python3 -c 'from opensfm import io, pymap, pypopsift'"; \
