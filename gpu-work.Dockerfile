@@ -1,4 +1,4 @@
-ARG CUDA_IMAGE=nvidia/cuda:12.8.1-devel-ubuntu24.04
+ARG CUDA_IMAGE=nvidia/cuda:12.8.1-runtime-ubuntu24.04
 ARG GPU_DEPS_IMAGE=odm-gpu-deps:local
 
 FROM ${GPU_DEPS_IMAGE} AS builder
@@ -18,9 +18,8 @@ RUN echo "GPUCACHEBUST=${GPUCACHEBUST}" \
   && (find /code/SuperBuild/install -name 'pypopsift*.so' -print -quit | grep -q . \
       || (echo "ERROR: pypopsift was not installed by the GPU build" \
           && find /code/SuperBuild -iname '*popsift*' -print | sort \
-          && exit 1))
-
-RUN bash configure_gpu.sh clean
+          && exit 1)) \
+  && bash configure_gpu.sh clean
 
 FROM ${CUDA_IMAGE} AS runtime
 
