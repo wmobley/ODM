@@ -609,6 +609,17 @@ class Task:
         }
         return [rel for rel in outputs if rel not in optional_outputs]
 
+    def _critical_outputs(self, outputs):
+        required_outputs = self._required_outputs(outputs)
+
+        if not isinstance(self, ToolchainTask):
+            return required_outputs
+
+        # Split-merge can continue with partial DEM/report outputs and will
+        # merge whatever each submodel restored. The georeferencing directory
+        # is the core toolchain output needed by downstream point cloud merge.
+        return [rel for rel in required_outputs if rel == "odm_georeferencing"]
+
     def _missing_outputs(self, root_path, outputs):
         missing = []
         for rel in outputs or []:
@@ -1326,6 +1337,7 @@ class Task:
                     direct_restore_present = [entry["relative_path"] for entry in direct_restore_snapshot if entry["exists"]]
                     direct_restore_missing = [entry["relative_path"] for entry in direct_restore_snapshot if not entry["exists"]]
                     required_outputs = self._required_outputs(outputs)
+                    critical_outputs = self._critical_outputs(outputs)
                     log.ODM_INFO(
                         "LRE: Direct restore snapshot for %s (%s): project_path=%s present=%s missing=%s"
                         % (self, task.uuid, restore_root, direct_restore_present, direct_restore_missing)
@@ -1354,7 +1366,7 @@ class Task:
                             if missing and alt_root_exists:
                                 fallback_copy_used = True
                                 alt_snapshot = self._snapshot_outputs(alt_root, outputs)
-                                copied = self._copy_outputs(alt_root, restore_root, required_outputs)
+                                copied = self._copy_outputs(alt_root, restore_root, outputs)
                                 log.ODM_WARNING("LRE: Missing required outputs under %s; copying from %s (missing=%s copied=%s)" %
                                                 (restore_root, alt_root, ", ".join(missing), copied))
                                 log.ODM_INFO(
@@ -1381,17 +1393,25 @@ class Task:
                     if outputs:
                         missing_after_restore = self._missing_outputs(restore_root, required_outputs)
                         if missing_after_restore:
+                            critical_missing_after_restore = [
+                                rel for rel in missing_after_restore if rel in critical_outputs
+                            ]
                             post_restore_snapshot = self._snapshot_outputs(restore_root, outputs)
                             log.ODM_WARNING(
-                                "LRE: Required outputs still missing after restore for %s (%s): %s"
+                                "LRE: Expected outputs still missing after restore for %s (%s): %s"
                                 % (self, task.uuid, ", ".join(missing_after_restore))
                             )
                             log.ODM_INFO(
                                 "LRE: Post-restore snapshot for %s (%s): %s"
                                 % (self, task.uuid, json.dumps(post_restore_snapshot, sort_keys=True))
                             )
-                            raise Exception(
-                                "Missing required outputs after restore for %s (%s): %s"
+                            if critical_missing_after_restore:
+                                raise Exception(
+                                    "Missing required outputs after restore for %s (%s): %s"
+                                    % (self, task.uuid, ", ".join(critical_missing_after_restore))
+                                )
+                            log.ODM_WARNING(
+                                "LRE: Continuing after restore for %s (%s); missing outputs are optional for merge: %s"
                                 % (self, task.uuid, ", ".join(missing_after_restore))
                             )
                     if isinstance(self, ToolchainTask):

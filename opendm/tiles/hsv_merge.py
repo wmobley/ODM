@@ -192,13 +192,23 @@ if ((rBand.YSize != hillband.YSize) or (rBand.XSize != hillband.XSize)):
     print('Color and hillshade must be the same size in pixels.')
     sys.exit(1)
 
+def read_scanline(band, yoff):
+    data = band.ReadRaster(0, yoff, hillband.XSize, 1, hillband.XSize, 1, gdal.GDT_Byte)
+    if data is None:
+        raise RuntimeError('Could not read raster scanline.')
+    return numpy.frombuffer(data, dtype=numpy.uint8).reshape(1, hillband.XSize)
+
+def write_scanline(band, yoff, scanline):
+    data = numpy.ascontiguousarray(scanline.astype(numpy.uint8, copy=False)).reshape(1, hillband.XSize)
+    band.WriteRaster(0, yoff, hillband.XSize, 1, data.tobytes(), hillband.XSize, 1, gdal.GDT_Byte)
+
 #loop over lines to apply hillshade
 for i in range(hillband.YSize):
     #load RGB and Hillshade arrays
-    rScanline = rBand.ReadAsArray(0, i, hillband.XSize, 1, hillband.XSize, 1)
-    gScanline = gBand.ReadAsArray(0, i, hillband.XSize, 1, hillband.XSize, 1)
-    bScanline = bBand.ReadAsArray(0, i, hillband.XSize, 1, hillband.XSize, 1)
-    hillScanline = hillband.ReadAsArray(0, i, hillband.XSize, 1, hillband.XSize, 1)
+    rScanline = read_scanline(rBand, i)
+    gScanline = read_scanline(gBand, i)
+    bScanline = read_scanline(bBand, i)
+    hillScanline = read_scanline(hillband, i)
 
     #convert to HSV
     hsv = rgb_to_hsv( rScanline, gScanline, bScanline )
@@ -218,16 +228,12 @@ for i in range(hillband.YSize):
     dst_color = hsv_to_rgb( hsv_adjusted )
 
     #write out new RGB bands to output one band at a time
-    outband = outdataset.GetRasterBand(1)
-    outband.WriteArray(dst_color[0], 0, i)
-    outband = outdataset.GetRasterBand(2)
-    outband.WriteArray(dst_color[1], 0, i)
-    outband = outdataset.GetRasterBand(3)
-    outband.WriteArray(dst_color[2], 0, i)
+    write_scanline(outdataset.GetRasterBand(1), i, dst_color[0])
+    write_scanline(outdataset.GetRasterBand(2), i, dst_color[1])
+    write_scanline(outdataset.GetRasterBand(3), i, dst_color[2])
     if aBand is not None:
-        aScanline = aBand.ReadAsArray(0, i, hillband.XSize, 1, hillband.XSize, 1)
-        outband = outdataset.GetRasterBand(4)
-        outband.WriteArray(aScanline, 0, i)
+        aScanline = read_scanline(aBand, i)
+        write_scanline(outdataset.GetRasterBand(4), i, aScanline)
 
     #update progress line
     if not quiet:

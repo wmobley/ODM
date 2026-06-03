@@ -210,8 +210,13 @@ class ODMReport(types.ODM_Stage):
                             odm_stats[dem + '_statistics'] = dem_stats[0]
 
                         osfm_dem = os.path.join(osfm_stats_dir, "%s.png" % dem)
+                        colored_dem = None
+                        hillshade_dem = None
+                        colored_hillshade_dem = None
                         try:
                             colored_dem, hillshade_dem, colored_hillshade_dem = generate_colored_hillshade(resized_dem_file)
+                            if not colored_hillshade_dem or not os.path.isfile(colored_hillshade_dem):
+                                raise Exception("colored hillshade was not generated")
                             system.run("gdal_translate -outsize {} 0 -of png \"{}\" \"{}\" --config GDAL_CACHEMAX {}%".format(image_target_size, colored_hillshade_dem, osfm_dem, get_max_memory()))
                         except Exception as e:
                             log.ODM_WARNING("Skipping colored hillshade for %s: %s" % (dem, str(e)))
@@ -219,7 +224,7 @@ class ODMReport(types.ODM_Stage):
                             system.run("gdal_translate -outsize {} 0 -of png \"{}\" \"{}\" --config GDAL_CACHEMAX {}%".format(image_target_size, resized_dem_file, osfm_dem, get_max_memory()))
                         finally:
                             for f in [resized_dem_file, colored_dem, hillshade_dem, colored_hillshade_dem]:
-                                if os.path.isfile(f):
+                                if f and os.path.isfile(f):
                                     try:
                                         os.remove(f)
                                     except Exception:
