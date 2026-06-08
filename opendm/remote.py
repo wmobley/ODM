@@ -950,9 +950,45 @@ class Task:
                     return base_path
 
                 flat_dir = os.path.join(base_path, "_import_path_flat")
+
+                def remove_existing(path):
+                    if not os.path.lexists(path):
+                        return
+                    if os.path.isdir(path) and not os.path.islink(path):
+                        shutil.rmtree(path)
+                    else:
+                        os.unlink(path)
+
+                def materialize_file(src, dst):
+                    if os.path.lexists(dst):
+                        return
+                    dst_parent = os.path.dirname(dst)
+                    if dst_parent:
+                        os.makedirs(dst_parent, exist_ok=True)
+                    try:
+                        os.link(src, dst, follow_symlinks=True)
+                    except (OSError, TypeError):
+                        shutil.copy2(src, dst, follow_symlinks=True)
+
+                def materialize_path(src, dst):
+                    if os.path.isdir(src):
+                        os.makedirs(dst, exist_ok=True)
+                        for root, dirs, files in os.walk(src):
+                            rel_root = os.path.relpath(root, src)
+                            dst_root = dst if rel_root == "." else os.path.join(dst, rel_root)
+                            os.makedirs(dst_root, exist_ok=True)
+                            for dirname in dirs:
+                                os.makedirs(os.path.join(dst_root, dirname), exist_ok=True)
+                            for filename in files:
+                                materialize_file(
+                                    os.path.join(root, filename),
+                                    os.path.join(dst_root, filename),
+                                )
+                    else:
+                        materialize_file(src, dst)
+
                 try:
-                    if os.path.exists(flat_dir):
-                        shutil.rmtree(flat_dir)
+                    remove_existing(flat_dir)
                     os.makedirs(flat_dir, exist_ok=True)
 
                     for root, _, files in os.walk(images_dir):
@@ -963,11 +999,11 @@ class Task:
                             src = os.path.join(root, filename)
                             dst = os.path.join(dst_root, filename)
                             try:
-                                os.symlink(src, dst)
+                                materialize_file(src, dst)
                             except FileExistsError:
                                 pass
                             except Exception as e:
-                                log.ODM_WARNING("LRE: Failed linking %s -> %s: %s" % (src, dst, str(e)))
+                                log.ODM_WARNING("LRE: Failed materializing %s -> %s: %s" % (src, dst, str(e)))
 
                     support_files = ["gcp_list.txt", "align.las", "align.laz", "align.tif"]
                     for sf in support_files:
@@ -975,11 +1011,11 @@ class Task:
                         if os.path.exists(src_sf):
                             dst_sf = os.path.join(flat_dir, sf)
                             try:
-                                os.symlink(src_sf, dst_sf)
+                                materialize_path(src_sf, dst_sf)
                             except FileExistsError:
                                 pass
                             except Exception as e:
-                                log.ODM_WARNING("LRE: Failed linking support file %s -> %s: %s" % (src_sf, dst_sf, str(e)))
+                                log.ODM_WARNING("LRE: Failed materializing support file %s -> %s: %s" % (src_sf, dst_sf, str(e)))
 
                     for rel_path in extra_seed_files:
                         src_path = os.path.join(base_path, rel_path)
@@ -991,11 +1027,11 @@ class Task:
                             log.ODM_WARNING("LRE: Seed file %s missing under import_path root %s" % (rel_path, base_path))
                             continue
                         try:
-                            os.symlink(src_path, dst_path)
+                            materialize_path(src_path, dst_path)
                         except FileExistsError:
                             pass
                         except Exception as e:
-                            log.ODM_WARNING("LRE: Failed linking seed file %s -> %s: %s" % (src_path, dst_path, str(e)))
+                            log.ODM_WARNING("LRE: Failed materializing seed file %s -> %s: %s" % (src_path, dst_path, str(e)))
 
                     for rel_path in extra_touch_files:
                         dst_path = os.path.join(flat_dir, rel_path)
@@ -1283,10 +1319,27 @@ class Task:
 
                             status_running = (
                                 status_val == TaskStatus.RUNNING
+                                or status_val == TaskStatus.RUNNING.value
+                                or status_val == 20
                                 or getattr(status_val, "code", None) == TaskStatus.RUNNING.value
                                 or getattr(status_val, "code", None) == 20
                             )
+                            status_failed = (
+                                status_val == TaskStatus.FAILED
+                                or status_val == TaskStatus.FAILED.value
+                                or status_val == 30
+                                or getattr(status_val, "value", None) == TaskStatus.FAILED.value
+                                or getattr(status_val, "code", None) == TaskStatus.FAILED.value
+                                or getattr(status_val, "code", None) == 30
+                            )
                             progress_hundred = progress_val is not None and progress_val >= 100
+
+                            if status_failed:
+                                last_error = getattr(info_check, "last_error", None) or getattr(info_check, "error", None) or ""
+                                raise exceptions.TaskFailedError(
+                                    "Remote task %s (%s) failed%s" %
+                                    (self, task.uuid, ": %s" % last_error if last_error else "")
+                                )
 
                             if status_running and not progress_hundred:
                                 # Some path-based tasks on ClusterODM/NodeODM can briefly report completion;
